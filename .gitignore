@@ -1,0 +1,15 @@
+node_modules
+.next
+generated
+.local
+.codex
+.vercel
+out
+dist
+.env
+.env*.local
+tsconfig.tsbuildinfo
+uploads/
+object-storage/*
+!object-storage/.gitkeep
+*.log
