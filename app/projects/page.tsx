@@ -1,21 +1,18 @@
-const items = ['Active projects', 'Model processing', 'Viewer sessions'];
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { ProjectWorkspace } from "@/components/projects/ProjectWorkspace";
+import { AUTH_COOKIE_NAME } from "@/lib/auth/adminAuth";
+import { getAuthSessionUser } from "@/lib/auth/session";
 
-export default function ProjectsPage() {
-  return (
-    <main className="shell">
-      <section className="hero">
-        <div className="eyebrow">Projects</div>
-        <h1 className="title">Project dashboard</h1>
-        <p className="muted">업무용 BIM 프로젝트를 모아 보고, 업로드와 처리 상태를 추적합니다.</p>
-        <div className="grid">
-          {items.map((item) => (
-            <div key={item} className="card">
-              <h3>{item}</h3>
-              <p className="muted">상태 표시용 플레이스홀더입니다.</p>
-            </div>
-          ))}
-        </div>
-      </section>
-    </main>
+export default async function ProjectsPage() {
+  const cookieStore = await cookies();
+  const currentUser = await getAuthSessionUser(
+    cookieStore.get(AUTH_COOKIE_NAME)?.value
   );
+
+  if (!currentUser) {
+    redirect("/");
+  }
+
+  return <ProjectWorkspace currentUser={currentUser} view="home" />;
 }

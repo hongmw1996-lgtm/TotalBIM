@@ -1,15 +1,25 @@
-import './globals.css';
-import type { ReactNode } from 'react';
+import type { Metadata } from "next";
+import { Geist } from "next/font/google";
+import "./globals.css";
 
-export const metadata = {
-  title: 'IFC BIM Viewer',
-  description: 'IFC workflows for production review.'
+const geistSans = Geist({
+  subsets: ["latin"],
+  variable: "--font-geist-sans"
+});
+
+export const metadata: Metadata = {
+  title: "IFC BIM Viewer",
+  description: "IFC upload and BIM viewer workspace"
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({
+  children
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html lang="ko">
-      <body>
+      <body className={geistSans.variable}>
         {children}
       </body>
     </html>

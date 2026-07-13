@@ -1,15 +1,31 @@
-type Params = Promise<{ projectId: string }>;
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { ProjectWorkspace } from "@/components/projects/ProjectWorkspace";
+import { AUTH_COOKIE_NAME } from "@/lib/auth/adminAuth";
+import { getAuthSessionUser } from "@/lib/auth/session";
 
-export default async function ProjectPage({ params }: { params: Params }) {
-  const { projectId } = await params;
+type ProjectPageProps = {
+  params: Promise<{
+    projectId: string;
+  }>;
+};
+
+export default async function ProjectPage({ params }: ProjectPageProps) {
+  const [{ projectId }, cookieStore] = await Promise.all([params, cookies()]);
+  const currentUser = await getAuthSessionUser(
+    cookieStore.get(AUTH_COOKIE_NAME)?.value
+  );
+
+  if (!currentUser) {
+    redirect("/");
+  }
 
   return (
-    <main className="shell">
-      <section className="panel">
-        <div className="eyebrow">Project</div>
-        <h1 className="title">Project {projectId}</h1>
-        <p className="muted">프로젝트 상세 페이지입니다.</p>
-      </section>
-    </main>
+    <ProjectWorkspace
+      currentUser={currentUser}
+      initialProjectId={decodeURIComponent(projectId)}
+      projectPage="info"
+      view="project"
+    />
   );
 }

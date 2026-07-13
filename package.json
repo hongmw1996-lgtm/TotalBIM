@@ -3,22 +3,54 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint .",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "worker:ifc": "node scripts/ifc-worker.mjs",
+    "worker:ifc:once": "node scripts/ifc-worker.mjs --once",
+    "gdrive:auth-url": "node scripts/google-drive-auth.mjs auth-url",
+    "gdrive:exchange-code": "node scripts/google-drive-auth.mjs exchange-code",
+    "gdrive:listen": "node scripts/google-drive-auth.mjs listen"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1074.0",
+    "@google-cloud/storage": "^7.21.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "@speckle/objectloader2": "^2.31.14",
+    "@speckle/viewer": "^2.31.14",
+    "@thatopen/fragments": "^3.4.5",
+    "@vercel/blob": "^2.4.1",
+    "dotenv": "^17.2.3",
+    "googleapis": "^173.0.0",
+    "lucide-react": "^0.468.0",
     "next": "^16.2.9",
+    "pg": "^8.16.3",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "three": "^0.184.0",
+    "xlsx": "^0.18.5",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.1",
     "@types/node": "^24.10.0",
+    "@types/pg": "^8.15.6",
     "@types/react": "^19.2.6",
     "@types/react-dom": "^19.2.3",
-    "typescript": "^5.9.3",
+    "@types/three": "^0.184.1",
     "eslint": "^9.39.1",
-    "eslint-config-next": "^16.2.9"
+    "eslint-config-next": "^16.2.9",
+    "postcss": "^8.5.6",
+    "prisma": "^7.8.0",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^5.9.3"
   }
 }

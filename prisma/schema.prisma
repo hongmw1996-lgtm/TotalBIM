@@ -1,0 +1,127 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model AppUser {
+  id           String   @id @default(cuid())
+  name         String   @default("")
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
+model IfcModel {
+  id               String      @id @default(cuid())
+  projectId        String
+  modelVersion     String?
+  fileName         String
+  originalFileName String
+  filePath         String
+  fileSize         Int
+  originalStorageProvider String @default("LOCAL")
+  originalStorageBucket   String?
+  originalStorageKey      String?
+  originalChecksum        String?
+  originalArchiveProvider String?
+  originalArchiveBucket   String?
+  originalArchiveKey      String?
+  originalArchiveUrl      String?
+  originalArchivedAt      DateTime?
+  originalDeletedAt       DateTime?
+  status           String      @default("UPLOADED")
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  objects          IfcObject[]
+  derivatives      IfcModelDerivative[]
+  processingJobs   IfcProcessingJob[]
+
+  @@index([projectId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([originalStorageProvider])
+  @@index([originalArchiveProvider])
+  @@index([originalArchivedAt])
+}
+
+model IfcObject {
+  id         String   @id @default(cuid())
+  modelId    String
+  expressId  Int?
+  globalId   String?
+  ifcType    String?
+  name       String?
+  objectType String?
+  storeyName String?
+  category   String?
+  properties Json?
+  createdAt  DateTime @default(now())
+
+  model      IfcModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@index([modelId])
+  @@index([expressId])
+  @@index([globalId])
+  @@index([ifcType])
+  @@index([storeyName])
+  @@index([category])
+}
+
+model IfcModelDerivative {
+  id              String   @id @default(cuid())
+  modelId         String
+  kind            String
+  format          String
+  lod             String?
+  storageProvider String
+  storageBucket   String?
+  storageKey      String
+  fileName        String
+  fileSize        Int
+  checksum        String?
+  status          String   @default("READY")
+  manifest        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  model           IfcModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([modelId, kind, format, lod])
+  @@index([modelId])
+  @@index([kind])
+  @@index([format])
+  @@index([storageProvider])
+  @@index([status])
+}
+
+model IfcProcessingJob {
+  id          String    @id @default(cuid())
+  modelId     String
+  type        String    @default("FRAG_DERIVATIVE")
+  status      String    @default("QUEUED")
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  message     String?
+  error       String?
+  lockedAt    DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  model       IfcModel  @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@index([modelId])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@index([lockedAt])
+}

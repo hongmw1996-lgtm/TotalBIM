@@ -1,11 +1,18 @@
-export default function TeamPage() {
-  return (
-    <main className="shell">
-      <section className="panel">
-        <div className="eyebrow">Team</div>
-        <h1 className="title">Team</h1>
-        <p className="muted">워크스페이스 멤버 관리 페이지입니다.</p>
-      </section>
-    </main>
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { ProjectWorkspace } from "@/components/projects/ProjectWorkspace";
+import { AUTH_COOKIE_NAME } from "@/lib/auth/adminAuth";
+import { getAuthSessionUser } from "@/lib/auth/session";
+
+export default async function TeamPage() {
+  const cookieStore = await cookies();
+  const currentUser = await getAuthSessionUser(
+    cookieStore.get(AUTH_COOKIE_NAME)?.value
   );
+
+  if (!currentUser) {
+    redirect("/");
+  }
+
+  return <ProjectWorkspace currentUser={currentUser} view="team" />;
 }

@@ -1,11 +1,37 @@
-export default function ViewerPage() {
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { ProjectWorkspace } from "@/components/projects/ProjectWorkspace";
+import { AUTH_COOKIE_NAME } from "@/lib/auth/adminAuth";
+import { getAuthSessionUser } from "@/lib/auth/session";
+
+type ViewerPageProps = {
+  searchParams: Promise<{
+    projectId?: string;
+  }>;
+};
+
+export default async function ViewerPage({ searchParams }: ViewerPageProps) {
+  const [resolvedSearchParams, cookieStore] = await Promise.all([
+    searchParams,
+    cookies()
+  ]);
+  const currentUser = await getAuthSessionUser(
+    cookieStore.get(AUTH_COOKIE_NAME)?.value
+  );
+
+  if (!currentUser) {
+    redirect("/");
+  }
+
   return (
-    <main className="shell">
-      <section className="panel">
-        <div className="eyebrow">Viewer</div>
-        <h1 className="title">IFC viewer</h1>
-        <p className="muted">여기에 3D 뷰어와 속성 패널이 연결됩니다.</p>
-      </section>
-    </main>
+    <ProjectWorkspace
+      currentUser={currentUser}
+      initialProjectId={
+        resolvedSearchParams.projectId
+          ? decodeURIComponent(resolvedSearchParams.projectId)
+          : undefined
+      }
+      view="viewer"
+    />
   );
 }

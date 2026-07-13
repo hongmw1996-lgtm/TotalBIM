@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "AppUser" ADD COLUMN "name" TEXT NOT NULL DEFAULT '';

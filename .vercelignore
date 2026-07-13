@@ -1,16 +1,14 @@
 .git
 .next
 .local
-.codex
 node_modules
 out
 dist
-generated
 uploads
 object-storage
+generated
 .env
 .env*.local
 *.log
 *.ifc
 *.frag
-tsconfig.tsbuildinfo

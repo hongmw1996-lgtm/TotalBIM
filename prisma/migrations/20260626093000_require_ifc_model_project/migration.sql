@@ -1,0 +1,3 @@
+DELETE FROM "IfcModel" WHERE "projectId" IS NULL;
+
+ALTER TABLE "IfcModel" ALTER COLUMN "projectId" SET NOT NULL;
