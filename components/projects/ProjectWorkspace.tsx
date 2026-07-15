@@ -4683,15 +4683,6 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
 
   return (
     <section id="project-calendar" className="mt-8 scroll-mt-8">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold">공사일보</h3>
-          <p className="mt-1 text-sm text-[#4d4d4d]">
-            캘린더에서 날짜를 선택하고 해당 날짜 문서를 열어 작성합니다.
-          </p>
-        </div>
-      </div>
-
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_360px]">
         <div className="rounded-[8px] border border-[#ebebeb] bg-white p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
