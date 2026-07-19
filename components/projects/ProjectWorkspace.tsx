@@ -179,6 +179,7 @@ type DailyReportQuantityRow = {
 
 type DailyReportLaborRow = {
   id: string;
+  subcontractorName?: string;
   trade: string;
   role: string;
   previous: string;
@@ -748,8 +749,12 @@ function normalizeDailyReport(report: ConstructionDailyReport) {
 
   return {
     ...report,
-    contractorLaborRows: report.contractorLaborRows ?? legacyLaborRows,
-    subcontractorLaborRows: report.subcontractorLaborRows ?? [],
+    contractorLaborRows: normalizeLaborRows(
+      report.contractorLaborRows ?? legacyLaborRows
+    ),
+    subcontractorLaborRows: normalizeLaborRows(
+      report.subcontractorLaborRows ?? []
+    ),
     equipmentRows: normalizeQuantityRows(report.equipmentRows),
     materialRows: normalizeQuantityRows(report.materialRows),
     photos: (report.photos ?? []).map((photo) => ({
@@ -758,6 +763,20 @@ function normalizeDailyReport(report: ConstructionDailyReport) {
       createdAt: photo.createdAt ?? report.createdAt
     }))
   };
+}
+
+function normalizeLaborRows(
+  rows: DailyReportLaborRow[] | undefined
+): DailyReportLaborRow[] {
+  return (rows ?? []).map((row) => ({
+    ...row,
+    subcontractorName: row.subcontractorName ?? "",
+    trade: row.trade ?? "",
+    role: row.role ?? "",
+    previous: row.previous ?? "",
+    today: row.today ?? "",
+    total: row.total ?? ""
+  }));
 }
 
 function readDailyReports() {
@@ -857,6 +876,106 @@ function getProjectSubcontractors(projectId: string) {
   return readProjectSubcontractors()
     .filter((item) => item.projectId === projectId)
     .sort((left, right) => left.companyName.localeCompare(right.companyName));
+}
+
+function getProjectSubcontractorNames(projectId: string) {
+  return getProjectSubcontractors(projectId).map((item) => item.companyName);
+}
+
+function formatDailyReportNumber(value: number) {
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+
+  return Number.isInteger(value) ? String(value) : String(value);
+}
+
+function getPreviousDailyReport(
+  reports: ConstructionDailyReport[],
+  report: ConstructionDailyReport
+) {
+  return reports
+    .filter(
+      (item) => item.id !== report.id && item.reportDate < report.reportDate
+    )
+    .sort((left, right) => right.reportDate.localeCompare(left.reportDate))[0] ?? null;
+}
+
+function getLaborRowMatchKey(
+  row: DailyReportLaborRow,
+  collection: "contractorLaborRows" | "subcontractorLaborRows"
+) {
+  const trade = row.trade.trim();
+  const role = row.role.trim();
+  const subcontractorName = row.subcontractorName?.trim() ?? "";
+
+  if (!trade || !role) {
+    return "";
+  }
+
+  return collection === "subcontractorLaborRows"
+    ? `${subcontractorName}::${trade}::${role}`
+    : `${trade}::${role}`;
+}
+
+function getPreviousLaborTotal(
+  previousReport: ConstructionDailyReport | null,
+  collection: "contractorLaborRows" | "subcontractorLaborRows",
+  row: DailyReportLaborRow
+) {
+  const key = getLaborRowMatchKey(row, collection);
+
+  if (!previousReport || !key) {
+    return "";
+  }
+
+  const previousRow = previousReport[collection].find(
+    (item) => getLaborRowMatchKey(item, collection) === key
+  );
+
+  if (!previousRow) {
+    return "";
+  }
+
+  return (
+    previousRow.total ||
+    formatDailyReportNumber(
+      parseDashboardNumber(previousRow.previous) +
+        parseDashboardNumber(previousRow.today)
+    )
+  );
+}
+
+function applyDailyReportLaborTotals(
+  report: ConstructionDailyReport,
+  previousReport: ConstructionDailyReport | null
+) {
+  const normalizeRow = (
+    collection: "contractorLaborRows" | "subcontractorLaborRows",
+    row: DailyReportLaborRow
+  ) => {
+    const previous = getPreviousLaborTotal(previousReport, collection, row);
+    const totalSource = parseDashboardNumber(previous) + parseDashboardNumber(row.today);
+
+    return {
+      ...row,
+      previous,
+      total:
+        previous || row.today.trim()
+          ? formatDailyReportNumber(totalSource)
+          : ""
+    };
+  };
+
+  return {
+    ...report,
+    contractorLaborRows: report.contractorLaborRows.map((row) =>
+      normalizeRow("contractorLaborRows", row)
+    ),
+    subcontractorLaborRows: report.subcontractorLaborRows.map((row) =>
+      normalizeRow("subcontractorLaborRows", row)
+    )
+  };
 }
 
 function readFileAsDataUrl(file: File) {
@@ -4156,6 +4275,9 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
   const [activeTab, setActiveTab] =
     useState<ProjectDocumentTabKey>("daily-report");
   const [reports, setReports] = useState<ConstructionDailyReport[]>([]);
+  const [projectSubcontractorNames, setProjectSubcontractorNames] = useState<
+    string[]
+  >([]);
   const [selectedDocument, setSelectedDocument] =
     useState<ProjectDocumentListItem | null>(null);
   const activeDocument = projectDocumentTabs.find((tab) => tab.key === activeTab)!;
@@ -4164,6 +4286,7 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setReports(getProjectDailyReports(project.id));
+      setProjectSubcontractorNames(getProjectSubcontractorNames(project.id));
     });
 
     return () => {
@@ -4172,8 +4295,12 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
   }, [project.id]);
 
   function saveDailyReportDocument(nextReport: ConstructionDailyReport) {
+    const normalizedReport = applyDailyReportLaborTotals(
+      nextReport,
+      getPreviousDailyReport(reports, nextReport)
+    );
     const updatedReport = {
-      ...nextReport,
+      ...normalizedReport,
       updatedAt: new Date().toISOString()
     };
     const otherReports = readDailyReports().filter(
@@ -4299,6 +4426,7 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
         <DocumentPreviewDialog
           document={selectedDocument}
           project={project}
+          subcontractorOptions={projectSubcontractorNames}
           onClose={() => setSelectedDocument(null)}
           onSaveReport={saveDailyReportDocument}
         />
@@ -4368,11 +4496,13 @@ function DocumentList({
 function DocumentPreviewDialog({
   document,
   project,
+  subcontractorOptions,
   onClose,
   onSaveReport
 }: {
   document: ProjectDocumentListItem;
   project: WorkspaceProject;
+  subcontractorOptions: string[];
   onClose: () => void;
   onSaveReport: (report: ConstructionDailyReport) => void;
 }) {
@@ -4500,7 +4630,13 @@ function DocumentPreviewDialog({
           {draftReport ? (
             <DailyReportDocumentPreview
               isEditing={isEditing}
+              previousReport={
+                draftReport
+                  ? getPreviousDailyReport(getProjectDailyReports(project.id), draftReport)
+                  : null
+              }
               report={draftReport}
+              subcontractorOptions={subcontractorOptions}
               onChange={setDraftReport}
             />
           ) : (
@@ -4526,11 +4662,15 @@ function DocumentPreviewDialog({
 function DailyReportDocumentPreview({
   isEditing,
   onChange,
-  report
+  previousReport = null,
+  report,
+  subcontractorOptions = []
 }: {
   isEditing: boolean;
   onChange: (report: ConstructionDailyReport) => void;
+  previousReport?: ConstructionDailyReport | null;
   report: ConstructionDailyReport;
+  subcontractorOptions?: string[];
 }) {
   const contractorLabor = isEditing
     ? report.contractorLaborRows
@@ -4582,12 +4722,17 @@ function DailyReportDocumentPreview({
     rowId: string,
     patch: Partial<Omit<DailyReportLaborRow, "id">>
   ) {
-    onChange({
-      ...report,
-      [collection]: report[collection].map((row) =>
-        row.id === rowId ? { ...row, ...patch } : row
+    onChange(
+      applyDailyReportLaborTotals(
+        {
+          ...report,
+          [collection]: report[collection].map((row) =>
+            row.id === rowId ? { ...row, ...patch } : row
+          )
+        },
+        previousReport
       )
-    });
+    );
   }
 
   function updateQuantityRow(
@@ -4600,6 +4745,89 @@ function DailyReportDocumentPreview({
       [collection]: report[collection].map((row) =>
         row.id === rowId ? { ...row, ...patch } : row
       )
+    });
+  }
+
+  function addWorkItem() {
+    onChange({
+      ...report,
+      workItems: [
+        ...report.workItems,
+        {
+          id: crypto.randomUUID(),
+          trade: "",
+          today: "",
+          tomorrow: ""
+        }
+      ]
+    });
+  }
+
+  function removeWorkItem(itemId: string) {
+    onChange({
+      ...report,
+      workItems: report.workItems.filter((item) => item.id !== itemId)
+    });
+  }
+
+  function addLaborRow(collection: "contractorLaborRows" | "subcontractorLaborRows") {
+    onChange(
+      applyDailyReportLaborTotals(
+        {
+          ...report,
+          [collection]: [
+            ...report[collection],
+            {
+              id: crypto.randomUUID(),
+              subcontractorName: "",
+              trade: "",
+              role: "",
+              previous: "",
+              today: "",
+              total: ""
+            }
+          ]
+        },
+        previousReport
+      )
+    );
+  }
+
+  function removeLaborRow(
+    collection: "contractorLaborRows" | "subcontractorLaborRows",
+    rowId: string
+  ) {
+    onChange({
+      ...report,
+      [collection]: report[collection].filter((row) => row.id !== rowId)
+    });
+  }
+
+  function addQuantityRow(collection: "materialRows" | "equipmentRows") {
+    onChange({
+      ...report,
+      [collection]: [
+        ...report[collection],
+        {
+          id: crypto.randomUUID(),
+          trade: "",
+          name: "",
+          spec: "",
+          previous: "",
+          today: "",
+          total: ""
+        }
+      ]
+    });
+  }
+
+  function removeQuantityRow(
+    collection: "materialRows" | "equipmentRows",
+    rowId: string
+  ) {
+    onChange({
+      ...report,
+      [collection]: report[collection].filter((row) => row.id !== rowId)
     });
   }
 
@@ -4648,7 +4876,12 @@ function DailyReportDocumentPreview({
 
       <DocumentPreviewSection title="작업내용">
         {isEditing ? (
-          <DocumentWorkItemsEditor rows={report.workItems} onChange={updateWorkItem} />
+          <DocumentWorkItemsEditor
+            rows={report.workItems}
+            onAddRow={addWorkItem}
+            onChange={updateWorkItem}
+            onRemoveRow={removeWorkItem}
+          />
         ) : (
           <DocumentSimpleTable
             headers={["공종", "금일 작업", "명일 예정"]}
@@ -4660,17 +4893,23 @@ function DailyReportDocumentPreview({
         )}
       </DocumentPreviewSection>
 
-      <DocumentPreviewSection title="직영 작업자">
+      <DocumentPreviewSection title="시공사">
         {isEditing ? (
           <DocumentLaborRowsEditor
             rows={contractorLabor}
+            showSubcontractor={false}
+            subcontractorOptions={subcontractorOptions}
+            onAddRow={() => addLaborRow("contractorLaborRows")}
             onChange={(rowId, patch) =>
               updateLaborRow("contractorLaborRows", rowId, patch)
+            }
+            onRemoveRow={(rowId) =>
+              removeLaborRow("contractorLaborRows", rowId)
             }
           />
         ) : (
           <DocumentSimpleTable
-            headers={["구분", "직종", "전일", "금일", "누계"]}
+            headers={["공종", "직종", "전일", "금일", "누계"]}
             rows={contractorLabor.map((row) => [
               row.trade,
               row.role,
@@ -4678,23 +4917,30 @@ function DailyReportDocumentPreview({
               row.today || "0",
               row.total || "0"
             ])}
-            emptyText="작성된 직영 작업자 현황이 없습니다."
+            emptyText="작성된 시공사 현황이 없습니다."
           />
         )}
       </DocumentPreviewSection>
 
-      <DocumentPreviewSection title="협력사 작업자">
+      <DocumentPreviewSection title="협력사">
         {isEditing ? (
           <DocumentLaborRowsEditor
             rows={subcontractorLabor}
+            showSubcontractor
+            subcontractorOptions={subcontractorOptions}
+            onAddRow={() => addLaborRow("subcontractorLaborRows")}
             onChange={(rowId, patch) =>
               updateLaborRow("subcontractorLaborRows", rowId, patch)
+            }
+            onRemoveRow={(rowId) =>
+              removeLaborRow("subcontractorLaborRows", rowId)
             }
           />
         ) : (
           <DocumentSimpleTable
-            headers={["공종", "직종", "전일", "금일", "누계"]}
+            headers={["협력사명", "공종", "직종", "전일", "금일", "누계"]}
             rows={subcontractorLabor.map((row) => [
+              row.subcontractorName || "-",
               row.trade,
               row.role,
               row.previous || "0",
@@ -4711,9 +4957,11 @@ function DailyReportDocumentPreview({
           {isEditing ? (
             <DocumentQuantityRowsEditor
               rows={materialRows}
+              onAddRow={() => addQuantityRow("materialRows")}
               onChange={(rowId, patch) =>
                 updateQuantityRow("materialRows", rowId, patch)
               }
+              onRemoveRow={(rowId) => removeQuantityRow("materialRows", rowId)}
             />
           ) : (
             <DocumentSimpleTable
@@ -4734,9 +4982,11 @@ function DailyReportDocumentPreview({
           {isEditing ? (
             <DocumentQuantityRowsEditor
               rows={equipmentRows}
+              onAddRow={() => addQuantityRow("equipmentRows")}
               onChange={(rowId, patch) =>
                 updateQuantityRow("equipmentRows", rowId, patch)
               }
+              onRemoveRow={(rowId) => removeQuantityRow("equipmentRows", rowId)}
             />
           ) : (
             <DocumentSimpleTable
@@ -4985,20 +5235,35 @@ function DocumentField({
 
 function DocumentWorkItemsEditor({
   onChange,
+  onAddRow,
+  onRemoveRow,
   rows
 }: {
+  onAddRow: () => void;
   onChange: (
     itemId: string,
     patch: Partial<Pick<DailyReportWorkItem, "trade" | "today" | "tomorrow">>
   ) => void;
+  onRemoveRow: (itemId: string) => void;
   rows: DailyReportWorkItem[];
 }) {
   return (
-    <div className="overflow-x-auto rounded-[6px] border border-[#ebebeb]">
+    <div>
+      <div className="mb-2 flex justify-end">
+        <button
+          type="button"
+          className="inline-flex h-8 items-center gap-1 rounded-[6px] border border-[#ebebeb] bg-white px-3 text-xs font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
+          onClick={onAddRow}
+        >
+          <Plus size={14} aria-hidden />
+          항목 추가
+        </button>
+      </div>
+      <div className="overflow-x-auto rounded-[6px] border border-[#ebebeb]">
       <table className="w-full min-w-[620px] border-collapse text-sm">
         <thead>
           <tr className="bg-[#fcfcfc]">
-            {["공종", "금일 작업", "명일 예정"].map((header) => (
+            {["공종", "금일 작업", "명일 예정", ""].map((header) => (
               <DocumentEditableHeader key={header}>{header}</DocumentEditableHeader>
             ))}
           </tr>
@@ -5018,27 +5283,61 @@ function DocumentWorkItemsEditor({
                 value={row.tomorrow}
                 onChange={(value) => onChange(row.id, { tomorrow: value })}
               />
+              <td className="border-b border-[#f2f2f2] px-2 py-2">
+                <button
+                  type="button"
+                  className="inline-flex size-8 items-center justify-center rounded-[4px] text-[#8f8f8f] transition hover:bg-[#f6f6f6] hover:text-[#171717]"
+                  aria-label={`${row.trade || "작업내용"} 삭제`}
+                  onClick={() => onRemoveRow(row.id)}
+                >
+                  <Trash2 size={14} aria-hidden />
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
 
 function DocumentLaborRowsEditor({
   onChange,
+  onAddRow,
+  onRemoveRow,
+  showSubcontractor,
+  subcontractorOptions,
   rows
 }: {
+  onAddRow: () => void;
   onChange: (rowId: string, patch: Partial<Omit<DailyReportLaborRow, "id">>) => void;
+  onRemoveRow: (rowId: string) => void;
+  showSubcontractor: boolean;
+  subcontractorOptions: string[];
   rows: DailyReportLaborRow[];
 }) {
+  const headers = showSubcontractor
+    ? ["협력사명", "공종", "직종", "전일", "금일", "누계", ""]
+    : ["공종", "직종", "전일", "금일", "누계", ""];
+
   return (
-    <div className="overflow-x-auto rounded-[6px] border border-[#ebebeb]">
-      <table className="w-full min-w-[620px] border-collapse text-sm">
+    <div>
+      <div className="mb-2 flex justify-end">
+        <button
+          type="button"
+          className="inline-flex h-8 items-center gap-1 rounded-[6px] border border-[#ebebeb] bg-white px-3 text-xs font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
+          onClick={onAddRow}
+        >
+          <Plus size={14} aria-hidden />
+          항목 추가
+        </button>
+      </div>
+      <div className="overflow-x-auto rounded-[6px] border border-[#ebebeb]">
+      <table className="w-full min-w-[720px] border-collapse text-sm">
         <thead>
           <tr className="bg-[#fcfcfc]">
-            {["공종", "직종", "전일", "금일", "누계"].map((header) => (
+            {headers.map((header) => (
               <DocumentEditableHeader key={header}>{header}</DocumentEditableHeader>
             ))}
           </tr>
@@ -5046,6 +5345,24 @@ function DocumentLaborRowsEditor({
         <tbody>
           {rows.map((row) => (
             <tr key={row.id}>
+              {showSubcontractor ? (
+                <td className="border-b border-[#f2f2f2] px-2 py-2">
+                  <select
+                    value={row.subcontractorName ?? ""}
+                    onChange={(event) =>
+                      onChange(row.id, { subcontractorName: event.target.value })
+                    }
+                    className="h-8 w-full rounded-[4px] border border-[#ebebeb] bg-white px-2 text-sm text-[#171717] outline-none transition focus:border-[#171717]"
+                  >
+                    <option value="">협력사 선택</option>
+                    {subcontractorOptions.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+              ) : null}
               <DocumentEditableCell
                 value={row.trade}
                 onChange={(value) => onChange(row.id, { trade: value })}
@@ -5056,7 +5373,8 @@ function DocumentLaborRowsEditor({
               />
               <DocumentEditableCell
                 value={row.previous}
-                onChange={(value) => onChange(row.id, { previous: value })}
+                readOnly
+                onChange={() => undefined}
               />
               <DocumentEditableCell
                 value={row.today}
@@ -5064,32 +5382,59 @@ function DocumentLaborRowsEditor({
               />
               <DocumentEditableCell
                 value={row.total}
-                onChange={(value) => onChange(row.id, { total: value })}
+                readOnly
+                onChange={() => undefined}
               />
+              <td className="border-b border-[#f2f2f2] px-2 py-2">
+                <button
+                  type="button"
+                  className="inline-flex size-8 items-center justify-center rounded-[4px] text-[#8f8f8f] transition hover:bg-[#f6f6f6] hover:text-[#171717]"
+                  aria-label={`${row.trade || "인원"} 삭제`}
+                  onClick={() => onRemoveRow(row.id)}
+                >
+                  <Trash2 size={14} aria-hidden />
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
 
 function DocumentQuantityRowsEditor({
   onChange,
+  onAddRow,
+  onRemoveRow,
   rows
 }: {
+  onAddRow: () => void;
   onChange: (
     rowId: string,
     patch: Partial<Omit<DailyReportQuantityRow, "id">>
   ) => void;
+  onRemoveRow: (rowId: string) => void;
   rows: DailyReportQuantityRow[];
 }) {
   return (
-    <div className="overflow-x-auto rounded-[6px] border border-[#ebebeb]">
+    <div>
+      <div className="mb-2 flex justify-end">
+        <button
+          type="button"
+          className="inline-flex h-8 items-center gap-1 rounded-[6px] border border-[#ebebeb] bg-white px-3 text-xs font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
+          onClick={onAddRow}
+        >
+          <Plus size={14} aria-hidden />
+          항목 추가
+        </button>
+      </div>
+      <div className="overflow-x-auto rounded-[6px] border border-[#ebebeb]">
       <table className="w-full min-w-[700px] border-collapse text-sm">
         <thead>
           <tr className="bg-[#fcfcfc]">
-            {["공종", "명칭", "규격", "전일", "금일", "누계"].map((header) => (
+            {["공종", "명칭", "규격", "전일", "금일", "누계", ""].map((header) => (
               <DocumentEditableHeader key={header}>{header}</DocumentEditableHeader>
             ))}
           </tr>
@@ -5121,10 +5466,21 @@ function DocumentQuantityRowsEditor({
                 value={row.total}
                 onChange={(value) => onChange(row.id, { total: value })}
               />
+              <td className="border-b border-[#f2f2f2] px-2 py-2">
+                <button
+                  type="button"
+                  className="inline-flex size-8 items-center justify-center rounded-[4px] text-[#8f8f8f] transition hover:bg-[#f6f6f6] hover:text-[#171717]"
+                  aria-label={`${row.name || "항목"} 삭제`}
+                  onClick={() => onRemoveRow(row.id)}
+                >
+                  <Trash2 size={14} aria-hidden />
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -5139,9 +5495,11 @@ function DocumentEditableHeader({ children }: { children: ReactNode }) {
 
 function DocumentEditableCell({
   onChange,
+  readOnly = false,
   value
 }: {
   onChange: (value: string) => void;
+  readOnly?: boolean;
   value: string;
 }) {
   return (
@@ -5149,8 +5507,13 @@ function DocumentEditableCell({
       <input
         type="text"
         value={value}
+        readOnly={readOnly}
         onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full rounded-[4px] border border-[#ebebeb] bg-white px-2 text-sm text-[#171717] outline-none transition focus:border-[#171717]"
+        className={`h-8 w-full rounded-[4px] border border-[#ebebeb] px-2 text-sm outline-none transition focus:border-[#171717] ${
+          readOnly
+            ? "bg-[#fcfcfc] font-semibold text-[#4d4d4d]"
+            : "bg-white text-[#171717]"
+        }`}
       />
     </td>
   );
@@ -5226,7 +5589,14 @@ function hasAnyDailyReportRowValue(
   row: DailyReportLaborRow | DailyReportQuantityRow
 ) {
   if ("role" in row) {
-    return Boolean(row.previous.trim() || row.today.trim() || row.total.trim());
+    return Boolean(
+      row.subcontractorName?.trim() ||
+        row.trade.trim() ||
+        row.role.trim() ||
+        row.previous.trim() ||
+        row.today.trim() ||
+        row.total.trim()
+    );
   }
 
   return Boolean(row.spec.trim() || row.previous.trim() || row.today.trim() || row.total.trim());
@@ -5321,6 +5691,9 @@ function ProjectComingSoonPage({
 
 function DailyReportSection({ project }: { project: WorkspaceProject }) {
   const [reports, setReports] = useState<ConstructionDailyReport[]>([]);
+  const [projectSubcontractorNames, setProjectSubcontractorNames] = useState<
+    string[]
+  >([]);
   const [selectedDate, setSelectedDate] = useState(getTodayInputValue());
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [isDocumentMenuOpen, setIsDocumentMenuOpen] = useState(false);
@@ -5354,6 +5727,7 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const storedReports = getProjectDailyReports(project.id);
+      setProjectSubcontractorNames(getProjectSubcontractorNames(project.id));
 
       if (storedReports.length > 0) {
         setReports(storedReports);
@@ -5407,12 +5781,25 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
     );
 
     if (existingReport) {
+      const normalizedReport = applyDailyReportLaborTotals(
+        existingReport,
+        getPreviousDailyReport(reports, existingReport)
+      );
+      replaceProjectReports(
+        reports.map((report) =>
+          report.id === existingReport.id ? normalizedReport : report
+        )
+      );
       setEditingReportId(existingReport.id);
       setIsDocumentMenuOpen(false);
       return;
     }
 
-    const nextReport = createDefaultDailyReport(project, selectedDate);
+    const defaultReport = createDefaultDailyReport(project, selectedDate);
+    const nextReport = applyDailyReportLaborTotals(
+      defaultReport,
+      getPreviousDailyReport(reports, defaultReport)
+    );
     replaceProjectReports([nextReport, ...reports]);
     setEditingReportId(nextReport.id);
     setIsDocumentMenuOpen(false);
@@ -5447,8 +5834,16 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
       reports.map((report) =>
         report.id === activeReportId
           ? {
-              ...report,
-              ...patch,
+              ...applyDailyReportLaborTotals(
+                {
+                  ...report,
+                  ...patch
+                },
+                getPreviousDailyReport(reports, {
+                  ...report,
+                  ...patch
+                })
+              ),
               updatedAt: new Date().toISOString()
             }
           : report
@@ -5496,9 +5891,14 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
       reports.map((report) =>
         report.id === activeReportId
           ? {
-              ...report,
-              [collection]: report[collection].map((row) =>
-                row.id === rowId ? { ...row, ...patch } : row
+              ...applyDailyReportLaborTotals(
+                {
+                  ...report,
+                  [collection]: report[collection].map((row) =>
+                    row.id === rowId ? { ...row, ...patch } : row
+                  )
+                },
+                getPreviousDailyReport(reports, report)
               ),
               updatedAt: new Date().toISOString()
             }
@@ -5522,9 +5922,14 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
       reports.map((report) =>
         report.id === activeReportId
           ? {
-              ...report,
-              [collection]: report[collection].map((row) =>
-                row.id === rowId ? { ...row, ...patch } : row
+              ...applyDailyReportLaborTotals(
+                {
+                  ...report,
+                  [collection]: report[collection].map((row) =>
+                    row.id === rowId ? { ...row, ...patch } : row
+                  )
+                },
+                getPreviousDailyReport(reports, report)
               ),
               updatedAt: new Date().toISOString()
             }
@@ -5594,18 +5999,24 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
       reports.map((report) =>
         report.id === activeReportId
           ? {
-              ...report,
-              [collection]: [
-                ...report[collection],
+              ...applyDailyReportLaborTotals(
                 {
-                  id: crypto.randomUUID(),
-                  trade: "",
-                  role: "",
-                  previous: "",
-                  today: "",
-                  total: ""
-                }
-              ],
+                  ...report,
+                  [collection]: [
+                    ...report[collection],
+                    {
+                      id: crypto.randomUUID(),
+                      subcontractorName: "",
+                      trade: "",
+                      role: "",
+                      previous: "",
+                      today: "",
+                      total: ""
+                    }
+                  ]
+                },
+                getPreviousDailyReport(reports, report)
+              ),
               updatedAt: new Date().toISOString()
             }
           : report
@@ -5851,6 +6262,7 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
       {editingReport ? (
         <DailyReportEditorDialog
           report={editingReport}
+          subcontractorOptions={projectSubcontractorNames}
           onClose={() => setEditingReportId(null)}
           onAddLaborRow={addLaborRow}
           onAddQuantityRow={addQuantityRow}
@@ -7201,6 +7613,7 @@ function ProjectScheduleSectionLegacy({ project }: { project: WorkspaceProject }
 
 function DailyReportEditorDialog({
   report,
+  subcontractorOptions,
   onClose,
   onAddLaborRow,
   onAddQuantityRow,
@@ -7214,6 +7627,7 @@ function DailyReportEditorDialog({
   onUpdateWorkItem
 }: {
   report: ConstructionDailyReport;
+  subcontractorOptions: string[];
   onClose: () => void;
   onAddLaborRow: (
     collection: "contractorLaborRows" | "subcontractorLaborRows"
@@ -7499,7 +7913,9 @@ function DailyReportEditorDialog({
             <div className="mt-6 grid gap-4 xl:grid-cols-2">
               <DailyReportLaborTable
                 title="인원 출력 현황 - 시공사"
+                variant="contractor"
                 rows={report.contractorLaborRows}
+                subcontractorOptions={subcontractorOptions}
                 onAddRow={() => onAddLaborRow("contractorLaborRows")}
                 onRemoveRow={(rowId) =>
                   onRemoveLaborRow("contractorLaborRows", rowId)
@@ -7510,7 +7926,9 @@ function DailyReportEditorDialog({
               />
               <DailyReportLaborTable
                 title="인원 출력 현황 - 협력사"
+                variant="subcontractor"
                 rows={report.subcontractorLaborRows}
+                subcontractorOptions={subcontractorOptions}
                 onAddRow={() => onAddLaborRow("subcontractorLaborRows")}
                 onRemoveRow={(rowId) =>
                   onRemoveLaborRow("subcontractorLaborRows", rowId)
@@ -7573,6 +7991,7 @@ function DailyReportEditorDialog({
             <DailyReportDocumentPreview
               isEditing={false}
               report={report}
+              subcontractorOptions={subcontractorOptions}
               onChange={() => undefined}
             />
           )}
@@ -7585,12 +8004,16 @@ function DailyReportEditorDialog({
 function DailyReportLaborTable({
   title,
   rows,
+  subcontractorOptions,
+  variant,
   onAddRow,
   onRemoveRow,
   onUpdateRow
 }: {
   title: string;
   rows: DailyReportLaborRow[];
+  subcontractorOptions: string[];
+  variant: "contractor" | "subcontractor";
   onAddRow: () => void;
   onRemoveRow: (rowId: string) => void;
   onUpdateRow: (
@@ -7598,6 +8021,14 @@ function DailyReportLaborTable({
     patch: Partial<Omit<DailyReportLaborRow, "id">>
   ) => void;
 }) {
+  const isSubcontractor = variant === "subcontractor";
+  const gridColumns = isSubcontractor
+    ? "grid-cols-[1fr_0.9fr_0.9fr_72px_72px_72px_44px]"
+    : "grid-cols-[1fr_1fr_72px_72px_72px_44px]";
+  const headers = isSubcontractor
+    ? ["협력사명", "공종", "직종", "전일", "금일", "누계", ""]
+    : ["공종", "직종", "전일", "금일", "누계", ""];
+
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
@@ -7612,8 +8043,8 @@ function DailyReportLaborTable({
         </button>
       </div>
       <div className="mt-3 overflow-hidden rounded-[8px] border border-[#ebebeb]">
-        <div className="grid grid-cols-[1fr_1fr_72px_72px_72px_44px] bg-[#fcfcfc] text-xs font-semibold text-[#4d4d4d]">
-          {["공종", "구분", "전일", "금일", "누계", ""].map((label) => (
+        <div className={`grid ${gridColumns} bg-[#fcfcfc] text-xs font-semibold text-[#4d4d4d]`}>
+          {headers.map((label) => (
             <div key={label} className="border-r border-[#ebebeb] px-2 py-2 last:border-r-0">
               {label}
             </div>
@@ -7622,8 +8053,24 @@ function DailyReportLaborTable({
         {rows.map((row) => (
           <div
             key={row.id}
-            className="grid grid-cols-[1fr_1fr_72px_72px_72px_44px] border-t border-[#ebebeb]"
+            className={`grid ${gridColumns} border-t border-[#ebebeb]`}
           >
+            {isSubcontractor ? (
+              <select
+                value={row.subcontractorName ?? ""}
+                onChange={(event) =>
+                  onUpdateRow(row.id, { subcontractorName: event.target.value })
+                }
+                className="min-w-0 border-r border-[#ebebeb] bg-white px-2 py-2 text-sm outline-none"
+              >
+                <option value="">협력사 선택</option>
+                {subcontractorOptions.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <input
               value={row.trade}
               onChange={(event) =>
@@ -7640,10 +8087,8 @@ function DailyReportLaborTable({
             />
             <input
               value={row.previous}
-              onChange={(event) =>
-                onUpdateRow(row.id, { previous: event.target.value })
-              }
-              className="min-w-0 border-r border-[#ebebeb] px-2 py-2 text-sm outline-none"
+              readOnly
+              className="min-w-0 border-r border-[#ebebeb] bg-[#fcfcfc] px-2 py-2 text-sm text-[#4d4d4d] outline-none"
             />
             <input
               value={row.today}
@@ -7654,10 +8099,8 @@ function DailyReportLaborTable({
             />
             <input
               value={row.total}
-              onChange={(event) =>
-                onUpdateRow(row.id, { total: event.target.value })
-              }
-              className="min-w-0 border-r border-[#ebebeb] px-2 py-2 text-sm outline-none"
+              readOnly
+              className="min-w-0 border-r border-[#ebebeb] bg-[#fcfcfc] px-2 py-2 text-sm font-semibold text-[#171717] outline-none"
             />
             <button
               type="button"
