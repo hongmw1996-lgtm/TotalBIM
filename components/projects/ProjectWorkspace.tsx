@@ -36,7 +36,7 @@ import {
   X
 } from "lucide-react";
 import type { ChangeEvent, ReactNode } from "react";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { BimViewer } from "@/components/bim-viewer/BimViewer";
 import { IfcUploadButton } from "@/components/bim-sidebar/IfcUploadButton";
 import { ViewerSidebar } from "@/components/bim-sidebar/ViewerSidebar";
@@ -47,7 +47,6 @@ type WorkspaceView =
   | "home"
   | "projects"
   | "project"
-  | "subcontractors"
   | "team"
   | "settings"
   | "viewer";
@@ -345,11 +344,6 @@ const navItems = [
     label: "프로젝트",
     href: "/projects/manage",
     icon: FolderKanban
-  },
-  {
-    label: "협력사",
-    href: "/subcontractors",
-    icon: Building2
   },
   {
     label: "팀",
@@ -1912,7 +1906,6 @@ export function ProjectWorkspace({
             <div className="flex items-center gap-3">
               {view === "home" ||
               view === "projects" ||
-              view === "subcontractors" ||
               view === "team" ? (
                 <div className="relative">
                   <Search
@@ -1974,10 +1967,6 @@ export function ProjectWorkspace({
             onUpdateModelVersion={updateIfcModelVersion}
             onUpdateProject={updateProject}
           />
-        ) : null}
-
-        {view === "subcontractors" ? (
-          <SubcontractorsWorkspace projects={projects} />
         ) : null}
 
         {view === "team" ? (
@@ -2918,85 +2907,6 @@ function ProjectDetailWorkspace({
           ) : null}
         </div>
       </div>
-    </div>
-  );
-}
-
-function SubcontractorsWorkspace({
-  projects
-}: {
-  projects: WorkspaceProject[];
-}) {
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
-    null
-  );
-  const visibleProjects = useMemo(
-    () => projects.filter((project) => project.id),
-    [projects]
-  );
-  const selectedProject =
-    visibleProjects.find((project) => project.id === selectedProjectId) ??
-    visibleProjects[0] ??
-    null;
-
-  if (!selectedProject) {
-    return (
-      <div className="mx-auto max-w-[1480px] px-8 py-8 xl:px-12">
-        <section className="rounded-[8px] border border-dashed border-[#dedede] bg-white p-10 text-center">
-          <h2 className="text-xl font-semibold tracking-[-0.03em]">협력사</h2>
-          <p className="mt-2 text-sm text-[#4d4d4d]">
-            협력사를 등록할 프로젝트를 먼저 만들어 주세요.
-          </p>
-          <div className="mt-5 flex justify-center">
-            <Link href="/projects/manage" className={primaryButtonClass}>
-              <Plus size={15} aria-hidden />
-              새 프로젝트 만들기
-            </Link>
-          </div>
-        </section>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mx-auto grid max-w-[1480px] gap-5 px-8 py-8 xl:grid-cols-[260px_minmax(0,1fr)] xl:px-12">
-      <aside className="rounded-[8px] border border-[#ebebeb] bg-white p-4">
-        <div className="mb-4">
-          <h2 className="text-base font-semibold">협력사</h2>
-          <p className="mt-1 text-sm text-[#8f8f8f]">
-            프로젝트별 협력사를 관리합니다.
-          </p>
-        </div>
-        <div className="space-y-1">
-          {visibleProjects.map((project) => {
-            const isSelected = project.id === selectedProject.id;
-
-            return (
-              <button
-                key={project.id}
-                type="button"
-                className={`flex w-full items-center justify-between gap-3 rounded-[8px] px-3 py-2 text-left text-sm font-medium transition ${
-                  isSelected
-                    ? "bg-[#171717] text-white"
-                    : "text-[#4d4d4d] hover:bg-[#f6f6f6] hover:text-[#171717]"
-                }`}
-                onClick={() => setSelectedProjectId(project.id)}
-              >
-                <span className="min-w-0 truncate">{project.name}</span>
-                <Building2
-                  size={15}
-                  className={isSelected ? "text-white" : "text-[#8f8f8f]"}
-                  aria-hidden
-                />
-              </button>
-            );
-          })}
-        </div>
-      </aside>
-      <ProjectSubcontractorsPage
-        key={selectedProject.id}
-        project={selectedProject}
-      />
     </div>
   );
 }
