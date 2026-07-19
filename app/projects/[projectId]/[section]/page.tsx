@@ -13,6 +13,8 @@ const projectPages = new Set<ProjectPageKey>([
   "documents",
   "settings",
   "schedule",
+  "progress-payments",
+  "subcontractors",
   "photos",
   "members"
 ]);

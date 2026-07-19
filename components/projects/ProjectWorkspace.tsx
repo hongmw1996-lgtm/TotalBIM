@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Box,
+  Building2,
   CalendarDays,
   ChartNoAxesGantt,
   ClipboardList,
@@ -22,6 +23,7 @@ import {
   PackageOpen,
   PanelLeftClose,
   PanelLeftOpen,
+  Paperclip,
   Plus,
   RotateCcw,
   Save,
@@ -34,7 +36,7 @@ import {
   X
 } from "lucide-react";
 import type { ChangeEvent, ReactNode } from "react";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { BimViewer } from "@/components/bim-viewer/BimViewer";
 import { IfcUploadButton } from "@/components/bim-sidebar/IfcUploadButton";
 import { ViewerSidebar } from "@/components/bim-sidebar/ViewerSidebar";
@@ -45,6 +47,7 @@ type WorkspaceView =
   | "home"
   | "projects"
   | "project"
+  | "subcontractors"
   | "team"
   | "settings"
   | "viewer";
@@ -62,12 +65,14 @@ export type ProjectPageKey =
   | "documents"
   | "settings"
   | "schedule"
+  | "progress-payments"
   | "photos"
+  | "subcontractors"
   | "members";
 
 type ProjectComingSoonPageKey = Exclude<
   ProjectPageKey,
-  "info" | "viewer" | "documents" | "settings"
+  "info" | "viewer" | "documents" | "settings" | "subcontractors"
 >;
 
 type ProjectInfoTabKey = "sitePhotos" | "dashboard" | "schedule";
@@ -182,6 +187,14 @@ type DailyReportLaborRow = {
   total: string;
 };
 
+type DailyReportPhoto = {
+  id: string;
+  fileName: string;
+  dataUrl: string;
+  caption: string;
+  createdAt: string;
+};
+
 type ConstructionDailyReport = {
   id: string;
   projectId: string;
@@ -197,6 +210,7 @@ type ConstructionDailyReport = {
   laborRows?: DailyReportLaborRow[];
   equipmentRows: DailyReportQuantityRow[];
   materialRows: DailyReportQuantityRow[];
+  photos: DailyReportPhoto[];
   createdAt: string;
   updatedAt: string;
 };
@@ -224,6 +238,33 @@ type ImportedScheduleItem = {
   sourceSheet: string;
 };
 
+type SubcontractorDocument = {
+  id: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  dataUrl: string;
+  uploadedAt: string;
+};
+
+type ProjectSubcontractor = {
+  id: string;
+  projectId: string;
+  companyName: string;
+  managerName: string;
+  managerNames: string[];
+  trade: string;
+  contractAmount: string;
+  contractStartDate: string;
+  contractEndDate: string;
+  phone: string;
+  email: string;
+  notes: string;
+  documents: SubcontractorDocument[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 type ScheduleDateHeader = {
   dateByColumn: Array<string | null>;
   firstDateColumn: number;
@@ -237,6 +278,7 @@ const DEFAULT_PROJECT_DELETED_KEY = "bim_default_project_deleted";
 const TEAMS_STORAGE_KEY = "bim_workspace_teams";
 const DAILY_REPORTS_STORAGE_KEY = "bim_project_daily_reports";
 const PROJECT_SCHEDULES_STORAGE_KEY = "bim_project_schedules";
+const PROJECT_SUBCONTRACTORS_STORAGE_KEY = "bim_project_subcontractors";
 
 const defaultProject: WorkspaceProject = {
   id: "default",
@@ -303,6 +345,11 @@ const navItems = [
     label: "프로젝트",
     href: "/projects/manage",
     icon: FolderKanban
+  },
+  {
+    label: "협력사",
+    href: "/subcontractors",
+    icon: Building2
   },
   {
     label: "팀",
@@ -689,6 +736,7 @@ function createDefaultDailyReport(
       today: "",
       total: ""
     })),
+    photos: [],
     createdAt: now,
     updatedAt: now
   };
@@ -709,7 +757,12 @@ function normalizeDailyReport(report: ConstructionDailyReport) {
     contractorLaborRows: report.contractorLaborRows ?? legacyLaborRows,
     subcontractorLaborRows: report.subcontractorLaborRows ?? [],
     equipmentRows: normalizeQuantityRows(report.equipmentRows),
-    materialRows: normalizeQuantityRows(report.materialRows)
+    materialRows: normalizeQuantityRows(report.materialRows),
+    photos: (report.photos ?? []).map((photo) => ({
+      ...photo,
+      caption: photo.caption ?? "",
+      createdAt: photo.createdAt ?? report.createdAt
+    }))
   };
 }
 
@@ -743,6 +796,90 @@ function getProjectDailyReports(projectId: string) {
         new Date(right.reportDate).getTime() -
         new Date(left.reportDate).getTime()
     );
+}
+
+function normalizeProjectSubcontractor(
+  item: ProjectSubcontractor
+): ProjectSubcontractor {
+  const normalizedManagerNames =
+    item.managerNames?.filter((name) => name.trim()).map((name) => name.trim()) ??
+    [];
+  const managerNames =
+    normalizedManagerNames.length > 0
+      ? normalizedManagerNames
+      : item.managerName
+        ? [item.managerName]
+        : [];
+
+  return {
+    ...item,
+    companyName: item.companyName ?? "",
+    managerName: managerNames.join(", "),
+    managerNames,
+    trade: item.trade ?? "",
+    contractAmount: item.contractAmount ?? "",
+    contractStartDate: item.contractStartDate ?? "",
+    contractEndDate: item.contractEndDate ?? "",
+    phone: item.phone ?? "",
+    email: item.email ?? "",
+    notes: item.notes ?? "",
+    documents: (item.documents ?? []).map((document) => ({
+      ...document,
+      fileType: document.fileType ?? "application/octet-stream",
+      fileSize: Number(document.fileSize ?? 0),
+      uploadedAt: document.uploadedAt ?? item.createdAt
+    }))
+  };
+}
+
+function readProjectSubcontractors() {
+  if (typeof window === "undefined") {
+    return [] as ProjectSubcontractor[];
+  }
+
+  const raw = window.localStorage.getItem(PROJECT_SUBCONTRACTORS_STORAGE_KEY);
+
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    return (JSON.parse(raw) as ProjectSubcontractor[]).map(
+      normalizeProjectSubcontractor
+    );
+  } catch {
+    return [];
+  }
+}
+
+function storeProjectSubcontractors(subcontractors: ProjectSubcontractor[]) {
+  window.localStorage.setItem(
+    PROJECT_SUBCONTRACTORS_STORAGE_KEY,
+    JSON.stringify(subcontractors)
+  );
+}
+
+function getProjectSubcontractors(projectId: string) {
+  return readProjectSubcontractors()
+    .filter((item) => item.projectId === projectId)
+    .sort((left, right) => left.companyName.localeCompare(right.companyName));
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onerror = () => reject(new Error("파일을 읽지 못했습니다."));
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("파일을 읽지 못했습니다."));
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function normalizeProjectScheduleItem(item: ProjectScheduleItem) {
@@ -1773,7 +1910,10 @@ export function ProjectWorkspace({
               </h1>
             </div>
             <div className="flex items-center gap-3">
-              {view === "home" || view === "projects" || view === "team" ? (
+              {view === "home" ||
+              view === "projects" ||
+              view === "subcontractors" ||
+              view === "team" ? (
                 <div className="relative">
                   <Search
                     size={16}
@@ -1834,6 +1974,10 @@ export function ProjectWorkspace({
             onUpdateModelVersion={updateIfcModelVersion}
             onUpdateProject={updateProject}
           />
+        ) : null}
+
+        {view === "subcontractors" ? (
+          <SubcontractorsWorkspace projects={projects} />
         ) : null}
 
         {view === "team" ? (
@@ -2618,6 +2762,18 @@ function ProjectDetailWorkspace({
       icon: ChartNoAxesGantt
     },
     {
+      key: "progress-payments",
+      label: "기성관리",
+      href: `${projectBaseHref}/progress-payments`,
+      icon: ClipboardList
+    },
+    {
+      key: "subcontractors",
+      label: "협력사",
+      href: `${projectBaseHref}/subcontractors`,
+      icon: Building2
+    },
+    {
       key: "photos",
       label: "사진첩",
       href: `${projectBaseHref}/photos`,
@@ -2751,11 +2907,96 @@ function ProjectDetailWorkspace({
             <ProjectScheduleSection project={project} />
           ) : null}
 
-          {projectPage === "photos" || projectPage === "members" ? (
+          {projectPage === "subcontractors" ? (
+            <ProjectSubcontractorsPage key={project.id} project={project} />
+          ) : null}
+
+          {projectPage === "progress-payments" ||
+          projectPage === "photos" ||
+          projectPage === "members" ? (
             <ProjectComingSoonPage page={projectPage} project={project} />
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+function SubcontractorsWorkspace({
+  projects
+}: {
+  projects: WorkspaceProject[];
+}) {
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    null
+  );
+  const visibleProjects = useMemo(
+    () => projects.filter((project) => project.id),
+    [projects]
+  );
+  const selectedProject =
+    visibleProjects.find((project) => project.id === selectedProjectId) ??
+    visibleProjects[0] ??
+    null;
+
+  if (!selectedProject) {
+    return (
+      <div className="mx-auto max-w-[1480px] px-8 py-8 xl:px-12">
+        <section className="rounded-[8px] border border-dashed border-[#dedede] bg-white p-10 text-center">
+          <h2 className="text-xl font-semibold tracking-[-0.03em]">협력사</h2>
+          <p className="mt-2 text-sm text-[#4d4d4d]">
+            협력사를 등록할 프로젝트를 먼저 만들어 주세요.
+          </p>
+          <div className="mt-5 flex justify-center">
+            <Link href="/projects/manage" className={primaryButtonClass}>
+              <Plus size={15} aria-hidden />
+              새 프로젝트 만들기
+            </Link>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto grid max-w-[1480px] gap-5 px-8 py-8 xl:grid-cols-[260px_minmax(0,1fr)] xl:px-12">
+      <aside className="rounded-[8px] border border-[#ebebeb] bg-white p-4">
+        <div className="mb-4">
+          <h2 className="text-base font-semibold">협력사</h2>
+          <p className="mt-1 text-sm text-[#8f8f8f]">
+            프로젝트별 협력사를 관리합니다.
+          </p>
+        </div>
+        <div className="space-y-1">
+          {visibleProjects.map((project) => {
+            const isSelected = project.id === selectedProject.id;
+
+            return (
+              <button
+                key={project.id}
+                type="button"
+                className={`flex w-full items-center justify-between gap-3 rounded-[8px] px-3 py-2 text-left text-sm font-medium transition ${
+                  isSelected
+                    ? "bg-[#171717] text-white"
+                    : "text-[#4d4d4d] hover:bg-[#f6f6f6] hover:text-[#171717]"
+                }`}
+                onClick={() => setSelectedProjectId(project.id)}
+              >
+                <span className="min-w-0 truncate">{project.name}</span>
+                <Building2
+                  size={15}
+                  className={isSelected ? "text-white" : "text-[#8f8f8f]"}
+                  aria-hidden
+                />
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+      <ProjectSubcontractorsPage
+        key={selectedProject.id}
+        project={selectedProject}
+      />
     </div>
   );
 }
@@ -3190,6 +3431,45 @@ function getDashboardNoteItems(report: ConstructionDailyReport) {
   return Array.from(new Set(items)).slice(0, 6);
 }
 
+function resizeDailyReportPhoto(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onerror = () => reject(new Error("사진 파일을 읽지 못했습니다."));
+    reader.onload = () => {
+      const source = typeof reader.result === "string" ? reader.result : "";
+
+      if (!source) {
+        reject(new Error("사진 파일을 읽지 못했습니다."));
+        return;
+      }
+
+      const image = new Image();
+      image.onerror = () => reject(new Error("사진 파일을 이미지로 처리하지 못했습니다."));
+      image.onload = () => {
+        const maxEdge = 1400;
+        const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
+        const width = Math.max(1, Math.round(image.width * scale));
+        const height = Math.max(1, Math.round(image.height * scale));
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+
+        if (!context) {
+          reject(new Error("사진을 처리할 수 없습니다."));
+          return;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        context.drawImage(image, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      image.src = source;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function formatDashboardDate(value: string) {
   const [year, month, day] = value.split("-");
 
@@ -3198,6 +3478,633 @@ function formatDashboardDate(value: string) {
 
 function ProjectScheduleTab({ project }: { project: WorkspaceProject }) {
   return <ProjectScheduleSection project={project} />;
+}
+
+function ProjectSubcontractorsPage({ project }: { project: WorkspaceProject }) {
+  const [subcontractors, setSubcontractors] = useState<ProjectSubcontractor[]>(
+    () => getProjectSubcontractors(project.id)
+  );
+  const [draft, setDraft] = useState({
+    companyName: "",
+    managerNames: [""],
+    trade: "",
+    contractAmount: "",
+    contractStartDate: "",
+    contractEndDate: "",
+    phone: "",
+    email: "",
+    notes: "",
+    documents: [] as SubcontractorDocument[]
+  });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isReadingFiles, setIsReadingFiles] = useState(false);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+
+  function persist(nextProjectSubcontractors: ProjectSubcontractor[]) {
+    const otherSubcontractors = readProjectSubcontractors().filter(
+      (item) => item.projectId !== project.id
+    );
+    const normalized = nextProjectSubcontractors
+      .map(normalizeProjectSubcontractor)
+      .sort((left, right) => left.companyName.localeCompare(right.companyName));
+
+    storeProjectSubcontractors([...otherSubcontractors, ...normalized]);
+    setSubcontractors(normalized);
+  }
+
+  function resetDraft() {
+    setEditingId(null);
+    setDraft({
+      companyName: "",
+      managerNames: [""],
+      trade: "",
+      contractAmount: "",
+      contractStartDate: "",
+      contractEndDate: "",
+      phone: "",
+      email: "",
+      notes: "",
+      documents: []
+    });
+  }
+
+  function openNewSubcontractorForm() {
+    resetDraft();
+    setIsFormOpen(true);
+  }
+
+  function closeSubcontractorForm() {
+    resetDraft();
+    setIsFormOpen(false);
+  }
+
+  function editSubcontractor(subcontractor: ProjectSubcontractor) {
+    setEditingId(subcontractor.id);
+    setIsFormOpen(true);
+    setDraft({
+      companyName: subcontractor.companyName,
+      managerNames:
+        subcontractor.managerNames.length > 0
+          ? subcontractor.managerNames
+          : [subcontractor.managerName].filter(Boolean),
+      trade: subcontractor.trade,
+      contractAmount: subcontractor.contractAmount,
+      contractStartDate: subcontractor.contractStartDate,
+      contractEndDate: subcontractor.contractEndDate,
+      phone: subcontractor.phone,
+      email: subcontractor.email,
+      notes: subcontractor.notes,
+      documents: subcontractor.documents
+    });
+  }
+
+  async function addDocuments(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+
+    if (files.length === 0 || isReadingFiles) {
+      return;
+    }
+
+    setIsReadingFiles(true);
+
+    try {
+      const documents = await Promise.all(
+        files.map(async (file) => ({
+          id: crypto.randomUUID(),
+          fileName: file.name,
+          fileType: file.type || "application/octet-stream",
+          fileSize: file.size,
+          dataUrl: await readFileAsDataUrl(file),
+          uploadedAt: new Date().toISOString()
+        }))
+      );
+
+      setDraft((current) => ({
+        ...current,
+        documents: [...current.documents, ...documents]
+      }));
+    } catch (error) {
+      window.alert(
+        error instanceof Error ? error.message : "서류를 업로드하지 못했습니다."
+      );
+    } finally {
+      setIsReadingFiles(false);
+    }
+  }
+
+  function removeDraftDocument(documentId: string) {
+    setDraft((current) => ({
+      ...current,
+      documents: current.documents.filter((document) => document.id !== documentId)
+    }));
+  }
+
+  function saveSubcontractor() {
+    const companyName = draft.companyName.trim();
+
+    if (!companyName) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const managerNames = draft.managerNames
+      .map((name) => name.trim())
+      .filter(Boolean);
+    const nextItem: ProjectSubcontractor = {
+      id: editingId ?? crypto.randomUUID(),
+      projectId: project.id,
+      companyName,
+      managerName: managerNames.join(", "),
+      managerNames,
+      trade: draft.trade.trim(),
+      contractAmount: draft.contractAmount.trim(),
+      contractStartDate: draft.contractStartDate,
+      contractEndDate: draft.contractEndDate,
+      phone: draft.phone.trim(),
+      email: draft.email.trim(),
+      notes: draft.notes.trim(),
+      documents: draft.documents,
+      createdAt:
+        subcontractors.find((item) => item.id === editingId)?.createdAt ?? now,
+      updatedAt: now
+    };
+    const nextSubcontractors = editingId
+      ? subcontractors.map((item) => (item.id === editingId ? nextItem : item))
+      : [...subcontractors, nextItem];
+
+    persist(nextSubcontractors);
+    closeSubcontractorForm();
+  }
+
+  function deleteSubcontractor(subcontractorId: string) {
+    persist(subcontractors.filter((item) => item.id !== subcontractorId));
+
+    if (editingId === subcontractorId) {
+      closeSubcontractorForm();
+    }
+  }
+
+  const totalContractAmount = subcontractors.reduce((sum, item) => {
+    const amount = Number(item.contractAmount.replace(/[^\d.-]/g, ""));
+
+    return Number.isFinite(amount) ? sum + amount : sum;
+  }, 0);
+
+  return (
+    <section>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-[-0.03em]">협력사</h2>
+          <p className="mt-1 text-sm text-[#4d4d4d]">
+            협력사 계약 정보와 계약서, 사업자등록증 같은 서류를 프로젝트별로 관리합니다.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-right">
+          <SummaryCard label="등록 협력사" value={`${subcontractors.length}개`} />
+          <SummaryCard
+            label="계약금액"
+            value={
+              totalContractAmount > 0
+                ? `${totalContractAmount.toLocaleString("ko-KR")}원`
+                : "-"
+            }
+          />
+        </div>
+      </div>
+
+      <div
+        className={`grid gap-5 ${
+          isFormOpen ? "xl:grid-cols-[420px_minmax(0,1fr)]" : ""
+        }`}
+      >
+        {isFormOpen ? (
+        <section className="rounded-[8px] border border-[#ebebeb] bg-white p-5">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold">
+                {editingId ? "협력사 수정" : "협력사 등록"}
+              </h3>
+              <p className="mt-1 text-sm text-[#8f8f8f]">
+                계약기간과 금액, 담당자 정보를 입력합니다.
+              </p>
+            </div>
+            {editingId ? (
+              <button
+                type="button"
+                className={secondaryButtonClass}
+                onClick={openNewSubcontractorForm}
+              >
+                새 등록
+              </button>
+            ) : null}
+          </div>
+
+          <div className="space-y-3">
+            <ProjectSubcontractorTextField
+              label="회사 이름"
+              value={draft.companyName}
+              onChange={(companyName) =>
+                setDraft((current) => ({ ...current, companyName }))
+              }
+            />
+            <ProjectSubcontractorManagersField
+              managerNames={draft.managerNames}
+              onChange={(managerNames) =>
+                setDraft((current) => ({ ...current, managerNames }))
+              }
+            />
+            <ProjectSubcontractorTextField
+              label="공종"
+              value={draft.trade}
+              onChange={(trade) => setDraft((current) => ({ ...current, trade }))}
+            />
+            <ProjectSubcontractorTextField
+              label="공사금액"
+              value={draft.contractAmount}
+              placeholder="예: 120,000,000"
+              onChange={(contractAmount) =>
+                setDraft((current) => ({ ...current, contractAmount }))
+              }
+            />
+            <div className="grid grid-cols-[96px_minmax(0,1fr)] items-start gap-3">
+              <span className="pt-2 text-sm font-semibold text-[#171717]">
+                계약기간
+              </span>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+                <input
+                  type="date"
+                  value={draft.contractStartDate}
+                  max={draft.contractEndDate || undefined}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      contractStartDate: event.target.value
+                    }))
+                  }
+                  className={`w-full ${inputClass}`}
+                  aria-label="계약 시작일"
+                />
+                <span className="hidden h-10 items-center text-sm text-[#8f8f8f] sm:flex">
+                  ~
+                </span>
+                <input
+                  type="date"
+                  value={draft.contractEndDate}
+                  min={draft.contractStartDate || undefined}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      contractEndDate: event.target.value
+                    }))
+                  }
+                  className={`w-full ${inputClass}`}
+                  aria-label="계약 종료일"
+                />
+              </div>
+            </div>
+            <ProjectSubcontractorTextField
+              label="연락처"
+              value={draft.phone}
+              onChange={(phone) => setDraft((current) => ({ ...current, phone }))}
+            />
+            <ProjectSubcontractorTextField
+              label="이메일"
+              value={draft.email}
+              onChange={(email) => setDraft((current) => ({ ...current, email }))}
+            />
+            <label className="grid grid-cols-[96px_minmax(0,1fr)] items-start gap-3">
+              <span className="pt-2 text-sm font-semibold text-[#171717]">비고</span>
+              <textarea
+                value={draft.notes}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, notes: event.target.value }))
+                }
+                className={`min-h-24 w-full ${textareaClass}`}
+              />
+            </label>
+          </div>
+
+          <div className="mt-5 rounded-[8px] border border-[#ebebeb] bg-[#fcfcfc] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-[#171717]">계약 서류</p>
+              <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-[6px] border border-[#ebebeb] bg-white px-3 text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]">
+                <Upload size={14} aria-hidden />
+                {isReadingFiles ? "업로드 중" : "서류 업로드"}
+                <input
+                  type="file"
+                  className="sr-only"
+                  multiple
+                  disabled={isReadingFiles}
+                  onChange={(event) => void addDocuments(event)}
+                />
+              </label>
+            </div>
+            {draft.documents.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {draft.documents.map((document) => (
+                  <div
+                    key={document.id}
+                    className="flex items-center justify-between gap-3 rounded-[6px] border border-[#ebebeb] bg-white px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-[#171717]">
+                        {document.fileName}
+                      </p>
+                      <p className="text-xs text-[#8f8f8f]">
+                        {formatBytes(document.fileSize)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="inline-flex size-8 shrink-0 items-center justify-center rounded-[6px] text-[#8f8f8f] transition hover:bg-[#f6f6f6] hover:text-[#171717]"
+                      aria-label={`${document.fileName} 삭제`}
+                      onClick={() => removeDraftDocument(document.id)}
+                    >
+                      <Trash2 size={14} aria-hidden />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 rounded-[6px] border border-dashed border-[#dedede] bg-white px-3 py-4 text-center text-sm text-[#8f8f8f]">
+                업로드된 서류가 없습니다.
+              </p>
+            )}
+          </div>
+
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              className={secondaryButtonClass}
+              onClick={closeSubcontractorForm}
+            >
+              닫기
+            </button>
+            <button type="button" className={secondaryButtonClass} onClick={resetDraft}>
+              입력 초기화
+            </button>
+            <button
+              type="button"
+              className={primaryButtonClass}
+              onClick={saveSubcontractor}
+              disabled={!draft.companyName.trim()}
+            >
+              <Save size={15} aria-hidden />
+              {editingId ? "수정 저장" : "협력사 등록"}
+            </button>
+          </div>
+        </section>
+        ) : (
+          <button
+            type="button"
+            className="flex min-h-[150px] items-center justify-center rounded-[8px] border border-dashed border-[#d9d9d9] bg-white transition hover:border-[#171717] hover:bg-[#fcfcfc]"
+            aria-label="협력사 등록"
+            onClick={openNewSubcontractorForm}
+          >
+            <span className="flex size-10 items-center justify-center rounded-[6px] border border-[#e5e5e5] bg-white text-[#171717] shadow-sm">
+              <Plus size={20} aria-hidden />
+            </span>
+          </button>
+        )}
+
+        <section className="rounded-[8px] border border-[#ebebeb] bg-white">
+          <div className="border-b border-[#ebebeb] px-5 py-4">
+            <h3 className="text-base font-semibold">협력사 목록</h3>
+            <p className="mt-1 text-sm text-[#8f8f8f]">
+              등록된 협력사의 계약 정보와 첨부 서류를 확인합니다.
+            </p>
+          </div>
+          {subcontractors.length > 0 ? (
+            <div className="divide-y divide-[#ebebeb]">
+              {subcontractors.map((subcontractor) => (
+                <article key={subcontractor.id} className="p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h4 className="text-lg font-semibold text-[#171717]">
+                          {subcontractor.companyName}
+                        </h4>
+                        {subcontractor.trade ? (
+                          <span className="rounded-full border border-[#d8eadf] bg-[#f4fbf6] px-2.5 py-1 text-xs font-semibold text-[#25884f]">
+                            {subcontractor.trade}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-1 text-sm text-[#4d4d4d]">
+                        관리자{" "}
+                        {subcontractor.managerNames.length > 0
+                          ? subcontractor.managerNames.join(", ")
+                          : subcontractor.managerName || "-"}{" "}
+                        · 연락처{" "}
+                        {subcontractor.phone || "-"}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        type="button"
+                        className={secondaryButtonClass}
+                        onClick={() => editSubcontractor(subcontractor)}
+                      >
+                        수정
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-[6px] border border-[#f0d6d6] bg-white px-4 text-sm font-medium text-[#b42318] transition hover:bg-[#fff7f7]"
+                        onClick={() => deleteSubcontractor(subcontractor.id)}
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    <SubcontractorInfoPill
+                      label="공사금액"
+                      value={
+                        subcontractor.contractAmount
+                          ? `${subcontractor.contractAmount}원`
+                          : "-"
+                      }
+                    />
+                    <SubcontractorInfoPill
+                      label="계약기간"
+                      value={
+                        subcontractor.contractStartDate ||
+                        subcontractor.contractEndDate
+                          ? `${subcontractor.contractStartDate || "-"} ~ ${
+                              subcontractor.contractEndDate || "-"
+                            }`
+                          : "-"
+                      }
+                    />
+                    <SubcontractorInfoPill
+                      label="이메일"
+                      value={subcontractor.email || "-"}
+                    />
+                  </div>
+
+                  {subcontractor.notes ? (
+                    <p className="mt-4 rounded-[6px] border border-[#ebebeb] bg-[#fcfcfc] px-3 py-2 text-sm text-[#4d4d4d]">
+                      {subcontractor.notes}
+                    </p>
+                  ) : null}
+
+                  <div className="mt-4">
+                    <p className="mb-2 text-sm font-semibold text-[#171717]">
+                      첨부 서류 {subcontractor.documents.length}개
+                    </p>
+                    {subcontractor.documents.length > 0 ? (
+                      <div className="grid gap-2 md:grid-cols-2">
+                        {subcontractor.documents.map((document) => (
+                          <a
+                            key={document.id}
+                            href={document.dataUrl}
+                            download={document.fileName}
+                            className="flex items-center gap-3 rounded-[6px] border border-[#ebebeb] bg-[#fcfcfc] px-3 py-2 text-sm transition hover:border-[#171717] hover:bg-white"
+                          >
+                            <Paperclip
+                              size={15}
+                              className="shrink-0 text-[#8f8f8f]"
+                              aria-hidden
+                            />
+                            <span className="min-w-0 flex-1 truncate font-medium text-[#171717]">
+                              {document.fileName}
+                            </span>
+                            <span className="shrink-0 text-xs text-[#8f8f8f]">
+                              {formatBytes(document.fileSize)}
+                            </span>
+                          </a>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="rounded-[6px] border border-dashed border-[#dedede] bg-[#fcfcfc] px-3 py-3 text-sm text-[#8f8f8f]">
+                        첨부된 서류가 없습니다.
+                      </p>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="flex min-h-[420px] items-center justify-center p-8 text-center">
+              <div>
+                <Building2 size={38} className="mx-auto text-[#c0c0c0]" aria-hidden />
+                <p className="mt-3 text-sm font-semibold text-[#4d4d4d]">
+                  등록된 협력사가 없습니다.
+                </p>
+                <p className="mt-1 text-sm text-[#8f8f8f]">
+                  위쪽 + 카드에서 첫 협력사를 등록하세요.
+                </p>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function ProjectSubcontractorTextField({
+  label,
+  onChange,
+  placeholder,
+  value
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  value: string;
+}) {
+  return (
+    <label className="grid grid-cols-[96px_minmax(0,1fr)] items-center gap-3">
+      <span className="text-sm font-semibold text-[#171717]">{label}</span>
+      <input
+        type="text"
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className={`w-full ${inputClass}`}
+      />
+    </label>
+  );
+}
+
+function ProjectSubcontractorManagersField({
+  managerNames,
+  onChange
+}: {
+  managerNames: string[];
+  onChange: (managerNames: string[]) => void;
+}) {
+  const names = managerNames.length > 0 ? managerNames : [""];
+
+  function updateManagerName(index: number, value: string) {
+    onChange(names.map((name, nameIndex) => (nameIndex === index ? value : name)));
+  }
+
+  function addManagerName() {
+    onChange([...names, ""]);
+  }
+
+  function removeManagerName(index: number) {
+    if (names.length === 1) {
+      onChange([""]);
+      return;
+    }
+
+    onChange(names.filter((_, nameIndex) => nameIndex !== index));
+  }
+
+  return (
+    <div className="grid grid-cols-[96px_minmax(0,1fr)] items-start gap-3">
+      <span className="pt-2 text-sm font-semibold text-[#171717]">관리자</span>
+      <div className="space-y-2">
+        {names.map((name, index) => (
+          <div key={index} className="flex gap-2">
+            <input
+              type="text"
+              value={name}
+              placeholder="관리자 이름"
+              onChange={(event) => updateManagerName(index, event.target.value)}
+              className={`w-full ${inputClass}`}
+            />
+            <button
+              type="button"
+              className="inline-flex size-10 shrink-0 items-center justify-center rounded-[6px] border border-[#ebebeb] bg-white text-[#8f8f8f] transition hover:bg-[#f6f6f6] hover:text-[#171717]"
+              aria-label="관리자 삭제"
+              onClick={() => removeManagerName(index)}
+            >
+              <X size={15} aria-hidden />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="inline-flex h-9 items-center gap-2 rounded-[6px] border border-[#ebebeb] bg-white px-3 text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
+          onClick={addManagerName}
+        >
+          <Plus size={14} aria-hidden />
+          관리자 추가
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SubcontractorInfoPill({
+  label,
+  value
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-[6px] border border-[#ebebeb] bg-[#fcfcfc] px-3 py-2">
+      <p className="text-xs font-medium text-[#8f8f8f]">{label}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-[#171717]">{value}</p>
+    </div>
+  );
 }
 
 function ProjectInfoTable({
@@ -3732,7 +4639,13 @@ function DailyReportDocumentPreview({
     patch: Partial<
       Pick<
         ConstructionDailyReport,
-        "reportDate" | "weather" | "lowTemp" | "highTemp" | "siteManager" | "notes"
+        | "reportDate"
+        | "weather"
+        | "lowTemp"
+        | "highTemp"
+        | "siteManager"
+        | "notes"
+        | "photos"
       >
     >
   ) {
@@ -3931,6 +4844,17 @@ function DailyReportDocumentPreview({
         </DocumentPreviewSection>
       </div>
 
+      <DocumentPreviewSection title="현장사진">
+        {isEditing ? (
+          <DailyReportPhotosEditor
+            photos={report.photos}
+            onChange={(photos) => updateReport({ photos })}
+          />
+        ) : (
+          <DailyReportPhotosPreview photos={report.photos} />
+        )}
+      </DocumentPreviewSection>
+
       <DocumentPreviewSection title="특기사항">
         {isEditing ? (
           <textarea
@@ -3946,6 +4870,172 @@ function DailyReportDocumentPreview({
         )}
       </DocumentPreviewSection>
     </article>
+  );
+}
+
+function DailyReportPhotosEditor({
+  onChange,
+  photos
+}: {
+  onChange: (photos: DailyReportPhoto[]) => void;
+  photos: DailyReportPhoto[];
+}) {
+  const [isProcessingPhotos, setIsProcessingPhotos] = useState(false);
+
+  async function addPhotos(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []).filter((file) =>
+      file.type.startsWith("image/")
+    );
+
+    event.target.value = "";
+
+    if (files.length === 0 || isProcessingPhotos) {
+      return;
+    }
+
+    setIsProcessingPhotos(true);
+
+    try {
+      const nextPhotos = await Promise.all(
+        files.map(async (file) => ({
+          id: crypto.randomUUID(),
+          fileName: file.name,
+          dataUrl: await resizeDailyReportPhoto(file),
+          caption: "",
+          createdAt: new Date().toISOString()
+        }))
+      );
+
+      onChange([...photos, ...nextPhotos]);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "사진을 첨부하지 못했습니다."
+      );
+    } finally {
+      setIsProcessingPhotos(false);
+    }
+  }
+
+  function updatePhoto(photoId: string, caption: string) {
+    onChange(
+      photos.map((photo) =>
+        photo.id === photoId
+          ? {
+              ...photo,
+              caption
+            }
+          : photo
+      )
+    );
+  }
+
+  function removePhoto(photoId: string) {
+    onChange(photos.filter((photo) => photo.id !== photoId));
+  }
+
+  return (
+    <div className="rounded-[8px] border border-[#ebebeb] bg-[#fcfcfc] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm font-medium text-[#4d4d4d]">
+          첨부된 사진 {photos.length}장
+        </p>
+        <label className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[6px] border border-[#ebebeb] bg-white px-3 text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]">
+          <ImageIcon size={15} aria-hidden />
+          {isProcessingPhotos ? "처리 중" : "사진 첨부"}
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            className="sr-only"
+            disabled={isProcessingPhotos}
+            onChange={(event) => void addPhotos(event)}
+          />
+        </label>
+      </div>
+
+      {photos.length > 0 ? (
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          {photos.map((photo) => (
+            <div
+              key={photo.id}
+              className="overflow-hidden rounded-[8px] border border-[#ebebeb] bg-white"
+            >
+              <div className="aspect-[4/3] bg-[#f2f2f2]">
+                {/* User-uploaded data URLs are previewed directly instead of using Next image optimization. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={photo.dataUrl}
+                  alt={photo.caption || photo.fileName}
+                  className="size-full object-cover"
+                />
+              </div>
+              <div className="space-y-2 p-3">
+                <input
+                  type="text"
+                  value={photo.caption}
+                  onChange={(event) => updatePhoto(photo.id, event.target.value)}
+                  placeholder="사진 설명 입력"
+                  className={`w-full ${inputClass}`}
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <p className="min-w-0 truncate text-xs text-[#8f8f8f]">
+                    {photo.fileName}
+                  </p>
+                  <button
+                    type="button"
+                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-[6px] text-[#8f8f8f] transition hover:bg-[#f6f6f6] hover:text-[#171717]"
+                    aria-label={`${photo.fileName} 사진 삭제`}
+                    onClick={() => removePhoto(photo.id)}
+                  >
+                    <Trash2 size={15} aria-hidden />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3 rounded-[8px] border border-dashed border-[#dedede] bg-white p-6 text-center text-sm text-[#8f8f8f]">
+          첨부된 현장사진이 없습니다.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DailyReportPhotosPreview({ photos }: { photos: DailyReportPhoto[] }) {
+  if (photos.length === 0) {
+    return (
+      <div className="rounded-[6px] border border-[#ebebeb] bg-[#fcfcfc] p-4 text-center text-sm text-[#8f8f8f]">
+        첨부된 현장사진이 없습니다.
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {photos.map((photo, index) => (
+        <figure
+          key={photo.id}
+          className="overflow-hidden rounded-[8px] border border-[#ebebeb] bg-white"
+        >
+          <div className="aspect-[4/3] bg-[#f2f2f2]">
+            {/* User-uploaded data URLs are previewed directly instead of using Next image optimization. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photo.dataUrl}
+              alt={photo.caption || `${index + 1}번 현장사진`}
+              className="size-full object-cover"
+            />
+          </div>
+          <figcaption className="border-t border-[#ebebeb] px-3 py-2 text-sm text-[#4d4d4d]">
+            {photo.caption || photo.fileName || `현장사진 ${index + 1}`}
+          </figcaption>
+        </figure>
+      ))}
+    </div>
   );
 }
 
@@ -4243,7 +5333,8 @@ function hasDailyReportDocumentContent(report: ConstructionDailyReport) {
       report.contractorLaborRows.some(hasAnyDailyReportRowValue) ||
       report.subcontractorLaborRows.some(hasAnyDailyReportRowValue) ||
       report.materialRows.some(hasAnyDailyReportRowValue) ||
-      report.equipmentRows.some(hasAnyDailyReportRowValue)
+      report.equipmentRows.some(hasAnyDailyReportRowValue) ||
+      report.photos.length > 0
   );
 }
 
@@ -4262,6 +5353,13 @@ function ProjectComingSoonPage({
       description:
         "공종별 일정, 진행률, 작업 계획을 3D 객체와 연결하기 위한 영역입니다.",
       meta: "공정표 연동 기능 준비 중"
+    },
+    "progress-payments": {
+      icon: ClipboardList,
+      title: "기성관리",
+      description:
+        "협력사별 기성 청구, 검수, 지급 상태와 관련 서류를 관리하기 위한 영역입니다.",
+      meta: "기성 청구 및 지급 관리 기능 준비 중"
     },
     photos: {
       icon: ImageIcon,
@@ -4420,6 +5518,7 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
         | "highTemp"
         | "siteManager"
         | "notes"
+        | "photos"
       >
     >
   ) {
@@ -6240,6 +7339,7 @@ function DailyReportEditorDialog({
         | "highTemp"
         | "siteManager"
         | "notes"
+        | "photos"
       >
     >
   ) => void;
@@ -6548,6 +7648,15 @@ function DailyReportEditorDialog({
                   className={`mt-3 min-h-[178px] w-full ${textareaClass}`}
                 />
               </label>
+              <div className="block text-sm font-semibold">
+                현장사진
+                <div className="mt-3">
+                  <DailyReportPhotosEditor
+                    photos={report.photos}
+                    onChange={(photos) => onUpdateReport({ photos })}
+                  />
+                </div>
+              </div>
             </div>
             </>
           ) : (
@@ -7285,7 +8394,7 @@ function ProjectSettingsDialog({
                   value={activeProjectDraft.designer ?? ""}
                   onChange={(value) => onUpdateDraft({ designer: value })}
                 />
-                <ProjectSettingsTextField
+                <ProjectSettingsDateRangeField
                   label="공사기간"
                   value={activeProjectDraft.constructionPeriod ?? ""}
                   onChange={(value) =>
@@ -7852,13 +8961,15 @@ function ProjectSettingsTextField({
   value: string;
 }) {
   return (
-    <label className="block">
-      <span className="text-sm font-medium text-[#171717]">{label}</span>
+    <label className="grid grid-cols-[86px_minmax(0,1fr)] items-center gap-3">
+      <span className="whitespace-nowrap text-sm font-semibold text-[#171717]">
+        {label}
+      </span>
       <input
         type="text"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className={`mt-2 ${inputClass}`}
+        className={`w-full ${inputClass}`}
       />
     </label>
   );
@@ -7893,72 +9004,154 @@ function ProjectSettingsLocationField({
   }
 
   return (
-    <div className="block">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-medium text-[#171717]">{label}</span>
+    <div className="grid grid-cols-[86px_minmax(0,1fr)] items-start gap-3">
+      <div className="flex h-10 items-center gap-2">
+        <span className="whitespace-nowrap text-sm font-semibold text-[#171717]">
+          {label}
+        </span>
         {locations.length > 0 ? (
           <span className="text-xs font-medium text-[#8f8f8f]">
-            {locations.length}개
+            {locations.length}
           </span>
         ) : null}
       </div>
-      <div className="mt-2 flex gap-2">
-        <input
-          type="text"
-          value={manualLocation}
-          onChange={(event) => setManualLocation(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              addManualLocation();
-            }
-          }}
-          placeholder="위치 직접 입력"
-          className={`min-w-0 flex-1 ${inputClass}`}
-        />
-        <button
-          type="button"
-          className="inline-flex h-10 shrink-0 items-center justify-center rounded-[6px] border border-[#ebebeb] bg-white px-3 text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6] disabled:cursor-not-allowed disabled:opacity-45"
-          onClick={addManualLocation}
-          disabled={!manualLocation.trim()}
-        >
-          추가
-        </button>
-        <button
-          type="button"
-          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-[6px] border border-[#ebebeb] bg-white px-3 text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
-          onClick={onOpenSearch}
-        >
-          <Search size={14} aria-hidden />
-          네이버 지도 검색
-        </button>
-      </div>
-      {locations.length > 0 ? (
-        <div className="mt-2 space-y-2">
-          {locations.map((location) => (
-            <div
-              key={location}
-              className="flex items-center justify-between gap-3 rounded-[8px] border border-[#ebebeb] bg-[#fcfcfc] px-3 py-2"
-            >
-              <span className="min-w-0 truncate text-sm text-[#171717]">
-                {location}
-              </span>
-              <button
-                type="button"
-                className="shrink-0 text-[#8f8f8f] transition hover:text-[#171717]"
-                aria-label={`${location} 위치 삭제`}
-                onClick={() => removeLocation(location)}
-              >
-                <X size={14} aria-hidden />
-              </button>
-            </div>
-          ))}
+      <div className="min-w-0">
+        <div className="flex flex-wrap gap-2">
+          <input
+            type="text"
+            value={manualLocation}
+            onChange={(event) => setManualLocation(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                addManualLocation();
+              }
+            }}
+            placeholder="위치 직접 입력"
+            className={`min-w-[220px] flex-1 ${inputClass}`}
+          />
+          <button
+            type="button"
+            className="inline-flex h-10 shrink-0 items-center justify-center rounded-[6px] border border-[#ebebeb] bg-white px-3 text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6] disabled:cursor-not-allowed disabled:opacity-45"
+            onClick={addManualLocation}
+            disabled={!manualLocation.trim()}
+          >
+            추가
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-[6px] border border-[#ebebeb] bg-white px-3 text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
+            onClick={onOpenSearch}
+          >
+            <Search size={14} aria-hidden />
+            네이버 지도 검색
+          </button>
         </div>
-      ) : (
-        <p className="mt-2 text-xs text-[#8f8f8f]">
-          직접 입력하거나 네이버 지도 검색으로 위치를 추가하세요.
-        </p>
-      )}
+        {locations.length > 0 ? (
+          <div className="mt-2 space-y-2">
+            {locations.map((location) => (
+              <div
+                key={location}
+                className="flex items-center justify-between gap-3 rounded-[8px] border border-[#ebebeb] bg-[#fcfcfc] px-3 py-2"
+              >
+                <span className="min-w-0 truncate text-sm text-[#171717]">
+                  {location}
+                </span>
+                <button
+                  type="button"
+                  className="shrink-0 text-[#8f8f8f] transition hover:text-[#171717]"
+                  aria-label={`${location} 위치 삭제`}
+                  onClick={() => removeLocation(location)}
+                >
+                  <X size={14} aria-hidden />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-[#8f8f8f]">
+            직접 입력하거나 네이버 지도 검색으로 위치를 추가하세요.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function parseDateRangeValue(value: string) {
+  const dates = value.match(/\d{4}-\d{2}-\d{2}/g) ?? [];
+
+  return {
+    endDate: dates[1] ?? "",
+    startDate: dates[0] ?? ""
+  };
+}
+
+function formatDateRangeValue(startDate: string, endDate: string) {
+  if (startDate && endDate) {
+    return `${startDate} ~ ${endDate}`;
+  }
+
+  return startDate || endDate;
+}
+
+function ProjectSettingsDateRangeField({
+  label,
+  onChange,
+  value
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const { endDate, startDate } = parseDateRangeValue(value);
+
+  function updateDateRange(nextStartDate: string, nextEndDate: string) {
+    onChange(formatDateRangeValue(nextStartDate, nextEndDate));
+  }
+
+  return (
+    <div className="grid grid-cols-[86px_minmax(0,1fr)] items-start gap-3">
+      <div className="flex h-10 items-center gap-2">
+        <span className="whitespace-nowrap text-sm font-semibold text-[#171717]">
+          {label}
+        </span>
+      </div>
+      <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+        <label className="relative block min-w-0">
+          <CalendarDays
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8f8f8f]"
+            aria-hidden
+          />
+          <input
+            type="date"
+            value={startDate}
+            max={endDate || undefined}
+            onChange={(event) => updateDateRange(event.target.value, endDate)}
+            className={`w-full pl-9 ${inputClass}`}
+            aria-label="공사 시작일"
+          />
+        </label>
+        <span className="hidden h-10 items-center text-sm text-[#8f8f8f] sm:flex">
+          ~
+        </span>
+        <label className="relative block min-w-0">
+          <CalendarDays
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8f8f8f]"
+            aria-hidden
+          />
+          <input
+            type="date"
+            value={endDate}
+            min={startDate || undefined}
+            onChange={(event) => updateDateRange(startDate, event.target.value)}
+            className={`w-full pl-9 ${inputClass}`}
+            aria-label="공사 종료일"
+          />
+        </label>
+      </div>
     </div>
   );
 }
@@ -7973,13 +9166,13 @@ function ProjectSettingsTextareaField({
   value: string;
 }) {
   return (
-    <label className="block">
-      <span className="text-sm font-medium text-[#171717]">{label}</span>
+    <label className="grid grid-cols-[86px_minmax(0,1fr)] items-start gap-3">
+      <span className="pt-2 text-sm font-semibold text-[#171717]">{label}</span>
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
         rows={3}
-        className={`mt-2 min-h-24 resize-y ${inputClass}`}
+        className={`w-full ${textareaClass}`}
       />
     </label>
   );
