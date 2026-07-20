@@ -5404,53 +5404,51 @@ function DailyReportDocumentPreview({
         )}
       </DocumentPreviewSection>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <DocumentPreviewSection title="자재 입고현황">
-          {isEditing ? (
-            <DocumentQuantityRowsEditor
-              groupRows
-              rows={materialRows}
-              onAddRow={() => addQuantityRow("materialRows")}
-              onChange={(rowId, patch) =>
-                updateQuantityRow("materialRows", rowId, patch)
-              }
-              onRemoveRow={(rowId) => removeQuantityRow("materialRows", rowId)}
-            />
-          ) : (
-            <DocumentSimpleTable
-              headers={["공종", "자재명", "규격", "전일", "금일", "누계"]}
-              rows={createGroupedQuantityDisplayRows(materialRows)}
-              emptyText="작성된 자재 입고현황이 없습니다."
-            />
-          )}
-        </DocumentPreviewSection>
+      <DocumentPreviewSection title="자재 입고현황">
+        {isEditing ? (
+          <DocumentQuantityRowsEditor
+            groupRows
+            rows={materialRows}
+            onAddRow={() => addQuantityRow("materialRows")}
+            onChange={(rowId, patch) =>
+              updateQuantityRow("materialRows", rowId, patch)
+            }
+            onRemoveRow={(rowId) => removeQuantityRow("materialRows", rowId)}
+          />
+        ) : (
+          <DocumentSimpleTable
+            headers={["공종", "자재명", "규격", "전일", "금일", "누계"]}
+            rows={createGroupedQuantityDisplayRows(materialRows)}
+            emptyText="작성된 자재 입고현황이 없습니다."
+          />
+        )}
+      </DocumentPreviewSection>
 
-        <DocumentPreviewSection title="장비 현황">
-          {isEditing ? (
-            <DocumentQuantityRowsEditor
-              rows={equipmentRows}
-              onAddRow={() => addQuantityRow("equipmentRows")}
-              onChange={(rowId, patch) =>
-                updateQuantityRow("equipmentRows", rowId, patch)
-              }
-              onRemoveRow={(rowId) => removeQuantityRow("equipmentRows", rowId)}
-            />
-          ) : (
-            <DocumentSimpleTable
-              headers={["공종", "장비명", "규격", "전일", "금일", "누계"]}
-              rows={equipmentRows.map((row) => [
-                row.trade,
-                row.name,
-                row.spec || "-",
-                row.previous || "0",
-                row.today || "0",
-                row.total || "0"
-              ])}
-              emptyText="작성된 장비 현황이 없습니다."
-            />
-          )}
-        </DocumentPreviewSection>
-      </div>
+      <DocumentPreviewSection title="장비 현황">
+        {isEditing ? (
+          <DocumentQuantityRowsEditor
+            rows={equipmentRows}
+            onAddRow={() => addQuantityRow("equipmentRows")}
+            onChange={(rowId, patch) =>
+              updateQuantityRow("equipmentRows", rowId, patch)
+            }
+            onRemoveRow={(rowId) => removeQuantityRow("equipmentRows", rowId)}
+          />
+        ) : (
+          <DocumentSimpleTable
+            headers={["공종", "장비명", "규격", "전일", "금일", "누계"]}
+            rows={equipmentRows.map((row) => [
+              row.trade,
+              row.name,
+              row.spec || "-",
+              row.previous || "0",
+              row.today || "0",
+              row.total || "0"
+            ])}
+            emptyText="작성된 장비 현황이 없습니다."
+          />
+        )}
+      </DocumentPreviewSection>
 
       <DocumentPreviewSection title="현장사진">
         {isEditing ? (
@@ -8424,7 +8422,7 @@ function DailyReportEditorDialog({
               />
             </div>
 
-            <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            <div className="mt-4 space-y-4">
               <DailyReportQuantityTable
                 title="장비 투입 현황"
                 rows={report.equipmentRows}
