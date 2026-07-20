@@ -807,8 +807,22 @@ function storeDailyReports(reports: ConstructionDailyReport[]) {
 }
 
 function getProjectDailyReports(projectId: string) {
-  return readDailyReports()
+  const projectReports = readDailyReports()
     .filter((report) => report.projectId === projectId)
+    .sort(
+      (left, right) =>
+        new Date(left.reportDate).getTime() -
+        new Date(right.reportDate).getTime()
+    );
+  const calculatedReports = projectReports.reduce<ConstructionDailyReport[]>(
+    (calculated, report) => [
+      ...calculated,
+      applyDailyReportTotals(report, getPreviousDailyReport(calculated, report))
+    ],
+    []
+  );
+
+  return calculatedReports
     .sort(
       (left, right) =>
         new Date(right.reportDate).getTime() -
