@@ -1180,6 +1180,57 @@ function getQuantityRowMatchKey(row: DailyReportQuantityRow) {
   return `${trade}::${name}::${spec}`;
 }
 
+function getQuantityRowGroupKey(row: DailyReportQuantityRow) {
+  const trade = row.trade.trim();
+  const name = row.name.trim();
+
+  return trade && name ? `${trade}::${name}` : "";
+}
+
+function groupDailyReportQuantityRows(rows: DailyReportQuantityRow[]) {
+  const groupOrder = new Map<string, number>();
+
+  return rows
+    .map((row, index) => {
+      const key = getQuantityRowGroupKey(row) || `__row_${index}`;
+
+      if (!groupOrder.has(key)) {
+        groupOrder.set(key, index);
+      }
+
+      return {
+        groupIndex: groupOrder.get(key) ?? index,
+        index,
+        row
+      };
+    })
+    .sort(
+      (left, right) =>
+        left.groupIndex - right.groupIndex || left.index - right.index
+    )
+    .map((item) => item.row);
+}
+
+function createGroupedQuantityDisplayRows(rows: DailyReportQuantityRow[]) {
+  let previousKey = "";
+
+  return groupDailyReportQuantityRows(rows).map((row) => {
+    const key = getQuantityRowGroupKey(row);
+    const isRepeatedGroup = Boolean(key) && key === previousKey;
+
+    previousKey = key;
+
+    return [
+      isRepeatedGroup ? "" : row.trade,
+      isRepeatedGroup ? "" : row.name,
+      row.spec || "-",
+      row.previous || "0",
+      row.today || "0",
+      row.total || "0"
+    ];
+  });
+}
+
 function getPreviousQuantityTotal(
   previousReport: ConstructionDailyReport | null,
   collection: "materialRows" | "equipmentRows",
@@ -5290,6 +5341,7 @@ function DailyReportDocumentPreview({
         <DocumentPreviewSection title="자재 입고현황">
           {isEditing ? (
             <DocumentQuantityRowsEditor
+              groupRows
               rows={materialRows}
               onAddRow={() => addQuantityRow("materialRows")}
               onChange={(rowId, patch) =>
@@ -5300,14 +5352,7 @@ function DailyReportDocumentPreview({
           ) : (
             <DocumentSimpleTable
               headers={["공종", "자재명", "규격", "전일", "금일", "누계"]}
-              rows={materialRows.map((row) => [
-                row.trade,
-                row.name,
-                row.spec || "-",
-                row.previous || "0",
-                row.today || "0",
-                row.total || "0"
-              ])}
+              rows={createGroupedQuantityDisplayRows(materialRows)}
               emptyText="작성된 자재 입고현황이 없습니다."
             />
           )}
@@ -5741,11 +5786,13 @@ function DocumentLaborRowsEditor({
 }
 
 function DocumentQuantityRowsEditor({
+  groupRows = false,
   onChange,
   onAddRow,
   onRemoveRow,
   rows
 }: {
+  groupRows?: boolean;
   onAddRow: () => void;
   onChange: (
     rowId: string,
@@ -5754,6 +5801,8 @@ function DocumentQuantityRowsEditor({
   onRemoveRow: (rowId: string) => void;
   rows: DailyReportQuantityRow[];
 }) {
+  const displayRows = groupRows ? groupDailyReportQuantityRows(rows) : rows;
+
   return (
     <div>
       <div className="mb-2 flex justify-end">
@@ -5776,7 +5825,7 @@ function DocumentQuantityRowsEditor({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {displayRows.map((row) => (
             <tr key={row.id}>
               <DocumentEditableCell
                 value={row.trade}
@@ -8372,6 +8421,7 @@ function DailyReportEditorDialog({
               />
               <DailyReportQuantityTable
                 title="자재 반입 현황"
+                groupRows
                 rows={report.materialRows}
                 onAddRow={() => onAddQuantityRow("materialRows")}
                 onRemoveRow={(rowId) =>
@@ -8537,12 +8587,14 @@ function DailyReportLaborTable({
 }
 
 function DailyReportQuantityTable({
+  groupRows = false,
   title,
   rows,
   onAddRow,
   onRemoveRow,
   onUpdateRow
 }: {
+  groupRows?: boolean;
   title: string;
   rows: DailyReportQuantityRow[];
   onAddRow: () => void;
@@ -8552,6 +8604,8 @@ function DailyReportQuantityTable({
     patch: Partial<Omit<DailyReportQuantityRow, "id">>
   ) => void;
 }) {
+  const displayRows = groupRows ? groupDailyReportQuantityRows(rows) : rows;
+
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
@@ -8573,7 +8627,7 @@ function DailyReportQuantityTable({
             </div>
           ))}
         </div>
-        {rows.map((row) => (
+        {displayRows.map((row) => (
           <div
             key={row.id}
             className="grid grid-cols-[0.9fr_1fr_1fr_72px_72px_72px_44px] border-t border-[#ebebeb]"
