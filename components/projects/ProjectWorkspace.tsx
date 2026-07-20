@@ -819,6 +819,359 @@ function storeDailyReports(reports: ConstructionDailyReport[]) {
   window.localStorage.setItem(DAILY_REPORTS_STORAGE_KEY, JSON.stringify(reports));
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function renderPrintCell(value: string) {
+  return escapeHtml(value || "-");
+}
+
+function renderPrintTable(
+  headers: string[],
+  rows: string[][],
+  emptyText: string
+) {
+  if (rows.length === 0) {
+    return `<div class="empty">${escapeHtml(emptyText)}</div>`;
+  }
+
+  return `
+    <table>
+      <thead>
+        <tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr>
+      </thead>
+      <tbody>
+        ${rows
+          .map(
+            (row) =>
+              `<tr>${row
+                .map((cell) => `<td>${renderPrintCell(cell)}</td>`)
+                .join("")}</tr>`
+          )
+          .join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderDailyReportPrintHtml(report: ConstructionDailyReport) {
+  const contractorLabor = report.contractorLaborRows.filter(hasAnyDailyReportRowValue);
+  const subcontractorLabor = report.subcontractorLaborRows.filter(
+    hasAnyDailyReportRowValue
+  );
+  const materialRows = report.materialRows.filter(hasAnyDailyReportRowValue);
+  const equipmentRows = report.equipmentRows.filter(hasAnyDailyReportRowValue);
+  const workItemRows = report.workItems
+    .filter((item) => item.today.trim() || item.tomorrow.trim())
+    .map((item) => [item.trade, item.today || "-", item.tomorrow || "-"]);
+  const photoHtml =
+    report.photos.length > 0
+      ? `<div class="photos">${report.photos
+          .map(
+            (photo, index) => `
+              <figure>
+                <img src="${escapeHtml(photo.dataUrl)}" alt="${escapeHtml(
+                  photo.caption || photo.fileName || `현장사진 ${index + 1}`
+                )}" />
+                <figcaption>${escapeHtml(
+                  photo.caption || photo.fileName || `현장사진 ${index + 1}`
+                )}</figcaption>
+              </figure>
+            `
+          )
+          .join("")}</div>`
+      : `<div class="empty">첨부된 현장사진이 없습니다.</div>`;
+
+  return `
+    <article class="daily-report">
+      <header>
+        <h1>공사일보</h1>
+        <p>${escapeHtml(formatKoreanDate(report.reportDate))}</p>
+      </header>
+
+      <section class="fields">
+        <div><strong>작성일</strong><span>${escapeHtml(report.reportDate)}</span></div>
+        <div><strong>현장대리인</strong><span>${renderPrintCell(report.siteManager)}</span></div>
+        <div><strong>날씨</strong><span>${renderPrintCell(report.weather)}</span></div>
+        <div><strong>최저기온</strong><span>${renderPrintCell(report.lowTemp)}</span></div>
+        <div><strong>최고기온</strong><span>${renderPrintCell(report.highTemp)}</span></div>
+      </section>
+
+      <section>
+        <h2>작업내용</h2>
+        ${renderPrintTable(
+          ["공종", "금일 작업", "명일 예정"],
+          workItemRows,
+          "작성된 작업내용이 없습니다."
+        )}
+      </section>
+
+      <section>
+        <h2>시공사</h2>
+        ${renderPrintTable(
+          ["공종", "직종", "전일", "금일", "누계"],
+          contractorLabor.map((row) => [
+            row.trade,
+            row.role,
+            row.previous || "0",
+            row.today || "0",
+            row.total || "0"
+          ]),
+          "작성된 시공사 현황이 없습니다."
+        )}
+      </section>
+
+      <section>
+        <h2>협력사</h2>
+        ${renderPrintTable(
+          ["협력사명", "공종", "직종", "전일", "금일", "누계"],
+          subcontractorLabor.map((row) => [
+            row.subcontractorName || "-",
+            row.trade,
+            row.role,
+            row.previous || "0",
+            row.today || "0",
+            row.total || "0"
+          ]),
+          "작성된 협력사 작업자 현황이 없습니다."
+        )}
+      </section>
+
+      <section>
+        <h2>자재 입고현황</h2>
+        ${renderPrintTable(
+          ["공종", "자재명", "규격", "전일", "금일", "누계"],
+          createGroupedQuantityDisplayRows(materialRows),
+          "작성된 자재 입고현황이 없습니다."
+        )}
+      </section>
+
+      <section>
+        <h2>장비 현황</h2>
+        ${renderPrintTable(
+          ["공종", "장비명", "규격", "전일", "금일", "누계"],
+          equipmentRows.map((row) => [
+            row.trade,
+            row.name,
+            row.spec || "-",
+            row.previous || "0",
+            row.today || "0",
+            row.total || "0"
+          ]),
+          "작성된 장비 현황이 없습니다."
+        )}
+      </section>
+
+      <section>
+        <h2>현장사진</h2>
+        ${photoHtml}
+      </section>
+
+      <section>
+        <h2>특기사항</h2>
+        <div class="notes">${escapeHtml(
+          report.notes.trim() || "작성된 특기사항이 없습니다."
+        )}</div>
+      </section>
+    </article>
+  `;
+}
+
+function printDailyReportsAsPdf(
+  project: WorkspaceProject,
+  reports: ConstructionDailyReport[]
+) {
+  if (reports.length === 0) {
+    window.alert("PDF로 저장할 공사일보가 없습니다.");
+    return;
+  }
+
+  const sortedReports = [...reports].sort((left, right) =>
+    left.reportDate.localeCompare(right.reportDate)
+  );
+  const title =
+    sortedReports.length === 1
+      ? `${sortedReports[0].reportDate} 공사일보`
+      : `${sortedReports[0].reportDate}~${
+          sortedReports[sortedReports.length - 1].reportDate
+        } 공사일보`;
+  const printWindow = window.open("", "_blank", "noopener,noreferrer");
+
+  if (!printWindow) {
+    window.alert("팝업이 차단되었습니다. 팝업 허용 후 다시 PDF 저장을 눌러주세요.");
+    return;
+  }
+
+  printWindow.document.write(`<!doctype html>
+    <html lang="ko">
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapeHtml(project.name)} ${escapeHtml(title)}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            background: #f7f7f7;
+            color: #171717;
+            font-family: Arial, "Malgun Gothic", sans-serif;
+          }
+          .print-root {
+            padding: 24px;
+          }
+          .project-title {
+            margin: 0 auto 16px;
+            max-width: 900px;
+            font-size: 13px;
+            color: #4d4d4d;
+          }
+          .daily-report {
+            max-width: 900px;
+            margin: 0 auto 24px;
+            padding: 24px;
+            border: 1px solid #d9d9d9;
+            border-radius: 8px;
+            background: #fff;
+            page-break-after: always;
+          }
+          .daily-report:last-child {
+            page-break-after: auto;
+          }
+          header {
+            border-bottom: 1px solid #171717;
+            padding-bottom: 18px;
+            text-align: center;
+          }
+          h1 {
+            margin: 0;
+            font-size: 24px;
+          }
+          header p {
+            margin: 10px 0 0;
+            font-size: 14px;
+            color: #4d4d4d;
+          }
+          section {
+            margin-top: 22px;
+          }
+          h2 {
+            margin: 0 0 8px;
+            font-size: 14px;
+          }
+          .fields {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px 12px;
+          }
+          .fields div {
+            display: grid;
+            grid-template-columns: 96px 1fr;
+            border: 1px solid #ebebeb;
+            border-radius: 6px;
+            overflow: hidden;
+          }
+          .fields strong {
+            padding: 10px 12px;
+            background: #fcfcfc;
+            color: #4d4d4d;
+            font-size: 13px;
+          }
+          .fields span {
+            padding: 10px 12px;
+            font-size: 13px;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            border: 1px solid #ebebeb;
+            font-size: 12px;
+          }
+          th {
+            background: #fcfcfc;
+            color: #4d4d4d;
+            font-weight: 600;
+            text-align: left;
+          }
+          th, td {
+            border-bottom: 1px solid #f2f2f2;
+            padding: 8px 10px;
+            vertical-align: top;
+          }
+          .empty, .notes {
+            min-height: 48px;
+            border: 1px solid #ebebeb;
+            border-radius: 6px;
+            background: #fcfcfc;
+            padding: 14px;
+            color: #4d4d4d;
+            font-size: 13px;
+            white-space: pre-wrap;
+          }
+          .photos {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+          }
+          figure {
+            margin: 0;
+            border: 1px solid #ebebeb;
+            border-radius: 8px;
+            overflow: hidden;
+          }
+          figure img {
+            display: block;
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            object-fit: cover;
+            background: #f2f2f2;
+          }
+          figcaption {
+            border-top: 1px solid #ebebeb;
+            padding: 8px 10px;
+            font-size: 12px;
+            color: #4d4d4d;
+          }
+          @page {
+            size: A4;
+            margin: 12mm;
+          }
+          @media print {
+            body { background: #fff; }
+            .print-root { padding: 0; }
+            .project-title { max-width: none; }
+            .daily-report {
+              max-width: none;
+              margin: 0;
+              border: 0;
+              border-radius: 0;
+              padding: 0;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <main class="print-root">
+          <p class="project-title">${escapeHtml(project.name)} · ${escapeHtml(
+            title
+          )}</p>
+          ${sortedReports.map(renderDailyReportPrintHtml).join("")}
+        </main>
+        <script>
+          window.addEventListener("load", () => {
+            window.focus();
+            window.print();
+          });
+        </script>
+      </body>
+    </html>`);
+  printWindow.document.close();
+}
+
 function getDailyReportTimeValue(report: ConstructionDailyReport) {
   return new Date(report.updatedAt || report.createdAt || report.reportDate).getTime();
 }
@@ -4650,6 +5003,8 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     useState<ProjectDocumentTabKey>("daily-report");
   const [reports, setReports] = useState<ConstructionDailyReport[]>([]);
   const [dailyReportRefreshKey, setDailyReportRefreshKey] = useState(0);
+  const [dailyReportPdfEndDate, setDailyReportPdfEndDate] = useState("");
+  const [dailyReportPdfStartDate, setDailyReportPdfStartDate] = useState("");
   const [projectSubcontractorNames, setProjectSubcontractorNames] = useState<
     string[]
   >([]);
@@ -4731,6 +5086,23 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     }
   }
 
+  function exportDailyReportsByDate() {
+    if (!dailyReportPdfStartDate && !dailyReportPdfEndDate) {
+      window.alert("PDF로 저장할 날짜를 선택해주세요.");
+      return;
+    }
+
+    const startDate = dailyReportPdfStartDate || dailyReportPdfEndDate;
+    const endDate = dailyReportPdfEndDate || dailyReportPdfStartDate;
+    const [fromDate, toDate] =
+      startDate <= endDate ? [startDate, endDate] : [endDate, startDate];
+    const selectedReports = reports.filter(
+      (report) => report.reportDate >= fromDate && report.reportDate <= toDate
+    );
+
+    printDailyReportsAsPdf(project, selectedReports);
+  }
+
   return (
     <section>
       <div className="mb-8">
@@ -4749,6 +5121,36 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
           <p className="mt-1 text-sm text-[#4d4d4d]">{project.name}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {activeTab === "daily-report" ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-[8px] border border-[#ebebeb] bg-[#fcfcfc] p-2">
+              <label className="flex items-center gap-2 text-xs font-medium text-[#4d4d4d]">
+                시작일
+                <input
+                  type="date"
+                  value={dailyReportPdfStartDate}
+                  onChange={(event) => setDailyReportPdfStartDate(event.target.value)}
+                  className="h-9 rounded-[6px] border border-[#ebebeb] bg-white px-2 text-sm text-[#171717] outline-none transition focus:border-[#171717]"
+                />
+              </label>
+              <label className="flex items-center gap-2 text-xs font-medium text-[#4d4d4d]">
+                종료일
+                <input
+                  type="date"
+                  value={dailyReportPdfEndDate}
+                  onChange={(event) => setDailyReportPdfEndDate(event.target.value)}
+                  className="h-9 rounded-[6px] border border-[#ebebeb] bg-white px-2 text-sm text-[#171717] outline-none transition focus:border-[#171717]"
+                />
+              </label>
+              <button
+                type="button"
+                className={secondaryButtonClass}
+                onClick={exportDailyReportsByDate}
+              >
+                <Download size={15} aria-hidden />
+                PDF 저장
+              </button>
+            </div>
+          ) : null}
           <button type="button" className={secondaryButtonClass}>
             <Upload size={15} aria-hidden />
             업로드
@@ -5048,13 +5450,27 @@ function DocumentPreviewDialog({
                   </button>
                 </>
               ) : (
-                <button
-                  type="button"
-                  className={secondaryButtonClass}
-                  onClick={() => setIsEditing(true)}
-                >
-                  수정
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    onClick={() =>
+                      printDailyReportsAsPdf(project, [
+                        draftReport ?? document.report!
+                      ])
+                    }
+                  >
+                    <Download size={15} aria-hidden />
+                    PDF 저장
+                  </button>
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    onClick={() => setIsEditing(true)}
+                  >
+                    수정
+                  </button>
+                </>
               )
             ) : null}
             <button
@@ -6307,276 +6723,29 @@ function DailyReportSection({
     );
   }
 
-  function updateWorkItem(
-    itemId: string,
-    patch: Partial<Pick<DailyReportWorkItem, "trade" | "today" | "tomorrow">>
-  ) {
-    const activeReportId = editingReportId ?? selectedReport?.id;
-
-    if (!activeReportId) {
-      return;
+  function replaceDailyReport(nextReport: ConstructionDailyReport) {
+    if (nextReport.reportDate) {
+      setSelectedDate(nextReport.reportDate);
+      setCalendarMonth(nextReport.reportDate.slice(0, 7));
     }
 
-    replaceProjectReports(
-      reports.map((report) =>
-        report.id === activeReportId
-          ? {
-              ...report,
-              workItems: report.workItems.map((item) =>
-                item.id === itemId ? { ...item, ...patch } : item
-              ),
-              updatedAt: new Date().toISOString()
-            }
-          : report
-      )
+    const normalizedReport = applyDailyReportTotals(
+      nextReport,
+      getPreviousDailyReport(reports, nextReport)
     );
-  }
-
-  function updateLaborRow(
-    collection: "contractorLaborRows" | "subcontractorLaborRows",
-    rowId: string,
-    patch: Partial<Omit<DailyReportLaborRow, "id">>
-  ) {
-    const activeReportId = editingReportId ?? selectedReport?.id;
-
-    if (!activeReportId) {
-      return;
-    }
-
+    const updatedReport = {
+      ...normalizedReport,
+      updatedAt: new Date().toISOString()
+    };
     const nextReports = reports.map((report) =>
-      report.id === activeReportId
-        ? {
-            ...applyDailyReportTotals(
-              {
-                ...report,
-                [collection]: report[collection].map((row) =>
-                  row.id === rowId ? { ...row, ...patch } : row
-                )
-              },
-              getPreviousDailyReport(reports, report)
-            ),
-            updatedAt: new Date().toISOString()
-          }
-        : report
+      report.id === updatedReport.id ? updatedReport : report
     );
-    const nextReport = nextReports.find((report) => report.id === activeReportId);
 
     replaceProjectReports(nextReports, {
-      [collection]: nextReport?.[collection]
-    });
-  }
-
-  function updateQuantityRow(
-    collection: "equipmentRows" | "materialRows",
-    rowId: string,
-    patch: Partial<Omit<DailyReportQuantityRow, "id">>
-  ) {
-    const activeReportId = editingReportId ?? selectedReport?.id;
-
-    if (!activeReportId) {
-      return;
-    }
-
-    const nextReports = reports.map((report) =>
-      report.id === activeReportId
-        ? {
-            ...applyDailyReportTotals(
-              {
-                ...report,
-                [collection]: report[collection].map((row) =>
-                  row.id === rowId ? { ...row, ...patch } : row
-                )
-              },
-              getPreviousDailyReport(reports, report)
-            ),
-            updatedAt: new Date().toISOString()
-          }
-        : report
-    );
-    const nextReport = nextReports.find((report) => report.id === activeReportId);
-
-    replaceProjectReports(nextReports, {
-      [collection]: nextReport?.[collection]
-    });
-  }
-
-  function addWorkItem() {
-    const activeReportId = editingReportId ?? selectedReport?.id;
-
-    if (!activeReportId) {
-      return;
-    }
-
-    replaceProjectReports(
-      reports.map((report) =>
-        report.id === activeReportId
-          ? {
-              ...report,
-              workItems: [
-                ...report.workItems,
-                {
-                  id: crypto.randomUUID(),
-                  trade: "",
-                  today: "",
-                  tomorrow: ""
-                }
-              ],
-              updatedAt: new Date().toISOString()
-            }
-          : report
-      )
-    );
-  }
-
-  function removeWorkItem(itemId: string) {
-    const activeReportId = editingReportId ?? selectedReport?.id;
-
-    if (!activeReportId) {
-      return;
-    }
-
-    replaceProjectReports(
-      reports.map((report) =>
-        report.id === activeReportId
-          ? {
-              ...report,
-              workItems: report.workItems.filter((item) => item.id !== itemId),
-              updatedAt: new Date().toISOString()
-            }
-          : report
-      )
-    );
-  }
-
-  function addLaborRow(
-    collection: "contractorLaborRows" | "subcontractorLaborRows"
-  ) {
-    const activeReportId = editingReportId ?? selectedReport?.id;
-
-    if (!activeReportId) {
-      return;
-    }
-
-    const nextReports = reports.map((report) =>
-      report.id === activeReportId
-        ? {
-            ...applyDailyReportTotals(
-              {
-                ...report,
-                [collection]: [
-                  ...report[collection],
-                  {
-                    id: crypto.randomUUID(),
-                    subcontractorName: "",
-                    trade: "",
-                    role: "",
-                    previous: "",
-                    today: "",
-                    total: ""
-                  }
-                ]
-              },
-              getPreviousDailyReport(reports, report)
-            ),
-            updatedAt: new Date().toISOString()
-          }
-        : report
-    );
-    const nextReport = nextReports.find((report) => report.id === activeReportId);
-
-    replaceProjectReports(nextReports, {
-      [collection]: nextReport?.[collection]
-    });
-  }
-
-  function removeLaborRow(
-    collection: "contractorLaborRows" | "subcontractorLaborRows",
-    rowId: string
-  ) {
-    const activeReportId = editingReportId ?? selectedReport?.id;
-
-    if (!activeReportId) {
-      return;
-    }
-
-    const nextReports = reports.map((report) =>
-      report.id === activeReportId
-        ? {
-            ...report,
-            [collection]: report[collection].filter((row) => row.id !== rowId),
-            updatedAt: new Date().toISOString()
-          }
-        : report
-    );
-    const nextReport = nextReports.find((report) => report.id === activeReportId);
-
-    replaceProjectReports(nextReports, {
-      [collection]: nextReport?.[collection]
-    });
-  }
-
-  function addQuantityRow(collection: "equipmentRows" | "materialRows") {
-    const activeReportId = editingReportId ?? selectedReport?.id;
-
-    if (!activeReportId) {
-      return;
-    }
-
-    const nextReports = reports.map((report) =>
-      report.id === activeReportId
-        ? {
-            ...applyDailyReportTotals(
-              {
-                ...report,
-                [collection]: [
-                  ...report[collection],
-                  {
-                    id: crypto.randomUUID(),
-                    trade: "",
-                    name: "",
-                    spec: "",
-                    previous: "",
-                    today: "",
-                    total: ""
-                  }
-                ]
-              },
-              getPreviousDailyReport(reports, report)
-            ),
-            updatedAt: new Date().toISOString()
-          }
-        : report
-    );
-    const nextReport = nextReports.find((report) => report.id === activeReportId);
-
-    replaceProjectReports(nextReports, {
-      [collection]: nextReport?.[collection]
-    });
-  }
-
-  function removeQuantityRow(
-    collection: "equipmentRows" | "materialRows",
-    rowId: string
-  ) {
-    const activeReportId = editingReportId ?? selectedReport?.id;
-
-    if (!activeReportId) {
-      return;
-    }
-
-    const nextReports = reports.map((report) =>
-      report.id === activeReportId
-        ? {
-            ...report,
-            [collection]: report[collection].filter((row) => row.id !== rowId),
-            updatedAt: new Date().toISOString()
-          }
-        : report
-    );
-    const nextReport = nextReports.find((report) => report.id === activeReportId);
-
-    replaceProjectReports(nextReports, {
-      [collection]: nextReport?.[collection]
+      contractorLaborRows: updatedReport.contractorLaborRows,
+      subcontractorLaborRows: updatedReport.subcontractorLaborRows,
+      equipmentRows: updatedReport.equipmentRows,
+      materialRows: updatedReport.materialRows
     });
   }
 
@@ -6744,19 +6913,12 @@ function DailyReportSection({
 
       {editingReport ? (
         <DailyReportEditorDialog
+          project={project}
           report={editingReport}
           subcontractorOptions={projectSubcontractorNames}
           onClose={() => setEditingReportId(null)}
-          onAddLaborRow={addLaborRow}
-          onAddQuantityRow={addQuantityRow}
-          onAddWorkItem={addWorkItem}
-          onRemoveLaborRow={removeLaborRow}
-          onRemoveQuantityRow={removeQuantityRow}
-          onRemoveWorkItem={removeWorkItem}
-          onUpdateLaborRow={updateLaborRow}
-          onUpdateQuantityRow={updateQuantityRow}
+          onChangeReport={replaceDailyReport}
           onUpdateReport={updateSelectedReport}
-          onUpdateWorkItem={updateWorkItem}
         />
       ) : null}
     </section>
@@ -8095,47 +8257,18 @@ function ProjectScheduleSectionLegacy({ project }: { project: WorkspaceProject }
 }
 
 function DailyReportEditorDialog({
+  project,
   report,
   subcontractorOptions,
   onClose,
-  onAddLaborRow,
-  onAddQuantityRow,
-  onAddWorkItem,
-  onRemoveLaborRow,
-  onRemoveQuantityRow,
-  onRemoveWorkItem,
-  onUpdateLaborRow,
-  onUpdateQuantityRow,
+  onChangeReport,
   onUpdateReport,
-  onUpdateWorkItem
 }: {
+  project: WorkspaceProject;
   report: ConstructionDailyReport;
   subcontractorOptions: string[];
   onClose: () => void;
-  onAddLaborRow: (
-    collection: "contractorLaborRows" | "subcontractorLaborRows"
-  ) => void;
-  onAddQuantityRow: (collection: "equipmentRows" | "materialRows") => void;
-  onAddWorkItem: () => void;
-  onRemoveLaborRow: (
-    collection: "contractorLaborRows" | "subcontractorLaborRows",
-    rowId: string
-  ) => void;
-  onRemoveQuantityRow: (
-    collection: "equipmentRows" | "materialRows",
-    rowId: string
-  ) => void;
-  onRemoveWorkItem: (itemId: string) => void;
-  onUpdateLaborRow: (
-    collection: "contractorLaborRows" | "subcontractorLaborRows",
-    rowId: string,
-    patch: Partial<Omit<DailyReportLaborRow, "id">>
-  ) => void;
-  onUpdateQuantityRow: (
-    collection: "equipmentRows" | "materialRows",
-    rowId: string,
-    patch: Partial<Omit<DailyReportQuantityRow, "id">>
-  ) => void;
+  onChangeReport: (report: ConstructionDailyReport) => void;
   onUpdateReport: (
     patch: Partial<
       Pick<
@@ -8149,10 +8282,6 @@ function DailyReportEditorDialog({
         | "photos"
       >
     >
-  ) => void;
-  onUpdateWorkItem: (
-    itemId: string,
-    patch: Partial<Pick<DailyReportWorkItem, "trade" | "today" | "tomorrow">>
   ) => void;
 }) {
   const [isEditing, setIsEditing] = useState(
@@ -8208,6 +8337,14 @@ function DailyReportEditorDialog({
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              className={secondaryButtonClass}
+              onClick={() => printDailyReportsAsPdf(project, [report])}
+            >
+              <Download size={15} aria-hidden />
+              PDF 저장
+            </button>
             {isEditing ? (
               <button
                 type="button"
@@ -8248,453 +8385,18 @@ function DailyReportEditorDialog({
           </div>
         </div>
 
-        <div className="max-h-[calc(90vh-84px)] overflow-y-auto p-5">
-          {isEditing ? (
-            <>
-            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2 text-base font-semibold">
-                  <ClipboardList size={17} aria-hidden />
-                  공사일보 작성
-                </div>
-                <p className="mt-1 text-sm text-[#8f8f8f]">
-                  예시 양식의 주요 항목을 날짜별 카드에 맞춰 정리했습니다.
-                </p>
-              </div>
-              <span className="rounded-full border border-[#ebebeb] bg-[#fcfcfc] px-3 py-1 text-xs font-medium text-[#4d4d4d]">
-                자동 저장
-              </span>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-5">
-              <label className="text-xs font-medium text-[#4d4d4d]">
-                일자
-                <input
-                  type="date"
-                  value={report.reportDate}
-                  onChange={(event) =>
-                    onUpdateReport({ reportDate: event.target.value })
-                  }
-                  className={`mt-1 w-full ${inputClass}`}
-                />
-              </label>
-              <label className="text-xs font-medium text-[#4d4d4d]">
-                날씨
-                <input
-                  type="text"
-                  value={report.weather}
-                  onChange={(event) =>
-                    onUpdateReport({ weather: event.target.value })
-                  }
-                  className={`mt-1 w-full ${inputClass}`}
-                />
-              </label>
-              <label className="text-xs font-medium text-[#4d4d4d]">
-                최저기온
-                <input
-                  type="text"
-                  value={report.lowTemp}
-                  onChange={(event) =>
-                    onUpdateReport({ lowTemp: event.target.value })
-                  }
-                  placeholder="-3.0"
-                  className={`mt-1 w-full ${inputClass}`}
-                />
-              </label>
-              <label className="text-xs font-medium text-[#4d4d4d]">
-                최고기온
-                <input
-                  type="text"
-                  value={report.highTemp}
-                  onChange={(event) =>
-                    onUpdateReport({ highTemp: event.target.value })
-                  }
-                  placeholder="8.0"
-                  className={`mt-1 w-full ${inputClass}`}
-                />
-              </label>
-              <label className="text-xs font-medium text-[#4d4d4d]">
-                담당자
-                <input
-                  type="text"
-                  value={report.siteManager}
-                  onChange={(event) =>
-                    onUpdateReport({ siteManager: event.target.value })
-                  }
-                  className={`mt-1 w-full ${inputClass}`}
-                />
-              </label>
-            </div>
-
-            <div className="mt-6">
-              <div className="flex items-center justify-between gap-3">
-                <h4 className="text-sm font-semibold">작업사항</h4>
-                <button
-                  type="button"
-                  className="inline-flex h-8 items-center justify-center gap-1 rounded-[6px] border border-[#ebebeb] bg-white px-3 text-xs font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
-                  onClick={onAddWorkItem}
-                >
-                  <Plus size={14} aria-hidden />
-                  항목 추가
-                </button>
-              </div>
-              <div className="mt-3 overflow-hidden rounded-[8px] border border-[#ebebeb]">
-                <div className="grid grid-cols-[120px_minmax(0,1fr)_minmax(0,1fr)_48px] bg-[#fcfcfc] text-xs font-semibold text-[#4d4d4d]">
-                  <div className="border-r border-[#ebebeb] px-3 py-2">구분</div>
-                  <div className="border-r border-[#ebebeb] px-3 py-2">
-                    금일 작업사항
-                  </div>
-                  <div className="border-r border-[#ebebeb] px-3 py-2">
-                    명일 작업사항
-                  </div>
-                  <div className="px-2 py-2" />
-                </div>
-                {report.workItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="grid grid-cols-[120px_minmax(0,1fr)_minmax(0,1fr)_48px] border-t border-[#ebebeb]"
-                  >
-                    <input
-                      type="text"
-                      value={item.trade}
-                      onChange={(event) =>
-                        onUpdateWorkItem(item.id, { trade: event.target.value })
-                      }
-                      className="border-r border-[#ebebeb] px-3 py-2 text-sm font-medium outline-none"
-                    />
-                    <textarea
-                      value={item.today}
-                      onChange={(event) =>
-                        onUpdateWorkItem(item.id, { today: event.target.value })
-                      }
-                      placeholder="금일 작업 내용을 입력"
-                      className="min-h-20 resize-y border-r border-[#ebebeb] px-3 py-2 text-sm outline-none"
-                    />
-                    <textarea
-                      value={item.tomorrow}
-                      onChange={(event) =>
-                        onUpdateWorkItem(item.id, {
-                          tomorrow: event.target.value
-                        })
-                      }
-                      placeholder="명일 작업 내용을 입력"
-                      className="min-h-20 resize-y border-r border-[#ebebeb] px-3 py-2 text-sm outline-none"
-                    />
-                    <button
-                      type="button"
-                      className="flex min-h-20 items-center justify-center text-[#8f8f8f] transition hover:bg-[#f6f6f6] hover:text-[#171717]"
-                      aria-label={`${item.trade || "작업사항"} 삭제`}
-                      onClick={() => onRemoveWorkItem(item.id)}
-                    >
-                      <Trash2 size={15} aria-hidden />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-6 grid gap-4 xl:grid-cols-2">
-              <DailyReportLaborTable
-                title="인원 출력 현황 - 시공사"
-                variant="contractor"
-                rows={report.contractorLaborRows}
-                subcontractorOptions={subcontractorOptions}
-                onAddRow={() => onAddLaborRow("contractorLaborRows")}
-                onRemoveRow={(rowId) =>
-                  onRemoveLaborRow("contractorLaborRows", rowId)
-                }
-                onUpdateRow={(rowId, patch) =>
-                  onUpdateLaborRow("contractorLaborRows", rowId, patch)
-                }
-              />
-              <DailyReportLaborTable
-                title="인원 출력 현황 - 협력사"
-                variant="subcontractor"
-                rows={report.subcontractorLaborRows}
-                subcontractorOptions={subcontractorOptions}
-                onAddRow={() => onAddLaborRow("subcontractorLaborRows")}
-                onRemoveRow={(rowId) =>
-                  onRemoveLaborRow("subcontractorLaborRows", rowId)
-                }
-                onUpdateRow={(rowId, patch) =>
-                  onUpdateLaborRow("subcontractorLaborRows", rowId, patch)
-                }
-              />
-            </div>
-
-            <div className="mt-4 space-y-4">
-              <DailyReportQuantityTable
-                title="장비 투입 현황"
-                rows={report.equipmentRows}
-                onAddRow={() => onAddQuantityRow("equipmentRows")}
-                onRemoveRow={(rowId) =>
-                  onRemoveQuantityRow("equipmentRows", rowId)
-                }
-                onUpdateRow={(rowId, patch) =>
-                  onUpdateQuantityRow("equipmentRows", rowId, patch)
-                }
-              />
-              <DailyReportQuantityTable
-                title="자재 반입 현황"
-                groupRows
-                rows={report.materialRows}
-                onAddRow={() => onAddQuantityRow("materialRows")}
-                onRemoveRow={(rowId) =>
-                  onRemoveQuantityRow("materialRows", rowId)
-                }
-                onUpdateRow={(rowId, patch) =>
-                  onUpdateQuantityRow("materialRows", rowId, patch)
-                }
-              />
-            </div>
-
-            <div className="mt-4 grid gap-4 xl:grid-cols-2">
-              <label className="block text-sm font-semibold">
-                기타사항
-                <textarea
-                  value={report.notes}
-                  onChange={(event) =>
-                    onUpdateReport({ notes: event.target.value })
-                  }
-                  placeholder="특이사항, 비고, 안전 이슈 등을 입력"
-                  className={`mt-3 min-h-[178px] w-full ${textareaClass}`}
-                />
-              </label>
-              <div className="block text-sm font-semibold">
-                현장사진
-                <div className="mt-3">
-                  <DailyReportPhotosEditor
-                    photos={report.photos}
-                    onChange={(photos) => onUpdateReport({ photos })}
-                  />
-                </div>
-              </div>
-            </div>
-            </>
-          ) : (
-            <DailyReportDocumentPreview
-              isEditing={false}
-              report={report}
-              subcontractorOptions={subcontractorOptions}
-              onChange={() => undefined}
-            />
-          )}
+        <div className="max-h-[calc(90vh-84px)] overflow-y-auto bg-[#f7f7f7] p-5">
+          <DailyReportDocumentPreview
+            isEditing={isEditing}
+            previousReport={getPreviousDailyReport(
+              getProjectDailyReports(report.projectId),
+              report
+            )}
+            report={report}
+            subcontractorOptions={subcontractorOptions}
+            onChange={isEditing ? onChangeReport : () => undefined}
+          />
         </div>
-      </div>
-    </div>
-  );
-}
-
-function DailyReportLaborTable({
-  title,
-  rows,
-  subcontractorOptions,
-  variant,
-  onAddRow,
-  onRemoveRow,
-  onUpdateRow
-}: {
-  title: string;
-  rows: DailyReportLaborRow[];
-  subcontractorOptions: string[];
-  variant: "contractor" | "subcontractor";
-  onAddRow: () => void;
-  onRemoveRow: (rowId: string) => void;
-  onUpdateRow: (
-    rowId: string,
-    patch: Partial<Omit<DailyReportLaborRow, "id">>
-  ) => void;
-}) {
-  const isSubcontractor = variant === "subcontractor";
-  const gridColumns = isSubcontractor
-    ? "grid-cols-[1fr_0.9fr_0.9fr_72px_72px_72px_44px]"
-    : "grid-cols-[1fr_1fr_72px_72px_72px_44px]";
-  const headers = isSubcontractor
-    ? ["협력사명", "공종", "직종", "전일", "금일", "누계", ""]
-    : ["공종", "직종", "전일", "금일", "누계", ""];
-
-  return (
-    <div>
-      <div className="flex items-center justify-between gap-3">
-        <h4 className="text-sm font-semibold">{title}</h4>
-        <button
-          type="button"
-          className="inline-flex h-8 items-center justify-center gap-1 rounded-[6px] border border-[#ebebeb] bg-white px-3 text-xs font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
-          onClick={onAddRow}
-        >
-          <Plus size={14} aria-hidden />
-          항목 추가
-        </button>
-      </div>
-      <div className="mt-3 overflow-hidden rounded-[8px] border border-[#ebebeb]">
-        <div className={`grid ${gridColumns} bg-[#fcfcfc] text-xs font-semibold text-[#4d4d4d]`}>
-          {headers.map((label) => (
-            <div key={label} className="border-r border-[#ebebeb] px-2 py-2 last:border-r-0">
-              {label}
-            </div>
-          ))}
-        </div>
-        {rows.map((row) => (
-          <div
-            key={row.id}
-            className={`grid ${gridColumns} border-t border-[#ebebeb]`}
-          >
-            {isSubcontractor ? (
-              <select
-                value={row.subcontractorName ?? ""}
-                onChange={(event) =>
-                  onUpdateRow(row.id, { subcontractorName: event.target.value })
-                }
-                className="min-w-0 border-r border-[#ebebeb] bg-white px-2 py-2 text-sm outline-none"
-              >
-                <option value="">협력사 선택</option>
-                {subcontractorOptions.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-            <input
-              value={row.trade}
-              onChange={(event) =>
-                onUpdateRow(row.id, { trade: event.target.value })
-              }
-              className="min-w-0 border-r border-[#ebebeb] px-2 py-2 text-sm outline-none"
-            />
-            <input
-              value={row.role}
-              onChange={(event) =>
-                onUpdateRow(row.id, { role: event.target.value })
-              }
-              className="min-w-0 border-r border-[#ebebeb] px-2 py-2 text-sm outline-none"
-            />
-            <input
-              value={row.previous}
-              readOnly
-              className="min-w-0 border-r border-[#ebebeb] bg-[#fcfcfc] px-2 py-2 text-sm text-[#4d4d4d] outline-none"
-            />
-            <input
-              value={row.today}
-              onChange={(event) =>
-                onUpdateRow(row.id, { today: event.target.value })
-              }
-              className="min-w-0 border-r border-[#ebebeb] px-2 py-2 text-sm outline-none"
-            />
-            <input
-              value={row.total}
-              readOnly
-              className="min-w-0 border-r border-[#ebebeb] bg-[#fcfcfc] px-2 py-2 text-sm font-semibold text-[#171717] outline-none"
-            />
-            <button
-              type="button"
-              className="flex items-center justify-center text-[#8f8f8f] transition hover:bg-[#f6f6f6] hover:text-[#171717]"
-              aria-label={`${row.trade || "인원"} 항목 삭제`}
-              onClick={() => onRemoveRow(row.id)}
-            >
-              <Trash2 size={14} aria-hidden />
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function DailyReportQuantityTable({
-  groupRows = false,
-  title,
-  rows,
-  onAddRow,
-  onRemoveRow,
-  onUpdateRow
-}: {
-  groupRows?: boolean;
-  title: string;
-  rows: DailyReportQuantityRow[];
-  onAddRow: () => void;
-  onRemoveRow: (rowId: string) => void;
-  onUpdateRow: (
-    rowId: string,
-    patch: Partial<Omit<DailyReportQuantityRow, "id">>
-  ) => void;
-}) {
-  const displayRows = groupRows ? groupDailyReportQuantityRows(rows) : rows;
-
-  return (
-    <div>
-      <div className="flex items-center justify-between gap-3">
-        <h4 className="text-sm font-semibold">{title}</h4>
-        <button
-          type="button"
-          className="inline-flex h-8 items-center justify-center gap-1 rounded-[6px] border border-[#ebebeb] bg-white px-3 text-xs font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
-          onClick={onAddRow}
-        >
-          <Plus size={14} aria-hidden />
-          항목 추가
-        </button>
-      </div>
-      <div className="mt-3 overflow-hidden rounded-[8px] border border-[#ebebeb]">
-        <div className="grid grid-cols-[0.9fr_1fr_1fr_72px_72px_72px_44px] bg-[#fcfcfc] text-xs font-semibold text-[#4d4d4d]">
-          {["공종", "품명", "규격", "전일", "금일", "누계", ""].map((label) => (
-            <div key={label} className="border-r border-[#ebebeb] px-2 py-2 last:border-r-0">
-              {label}
-            </div>
-          ))}
-        </div>
-        {displayRows.map((row) => (
-          <div
-            key={row.id}
-            className="grid grid-cols-[0.9fr_1fr_1fr_72px_72px_72px_44px] border-t border-[#ebebeb]"
-          >
-            <input
-              value={row.trade}
-              onChange={(event) =>
-                onUpdateRow(row.id, { trade: event.target.value })
-              }
-              className="min-w-0 border-r border-[#ebebeb] px-2 py-2 text-sm outline-none"
-            />
-            <input
-              value={row.name}
-              onChange={(event) =>
-                onUpdateRow(row.id, { name: event.target.value })
-              }
-              className="min-w-0 border-r border-[#ebebeb] px-2 py-2 text-sm outline-none"
-            />
-            <input
-              value={row.spec}
-              onChange={(event) =>
-                onUpdateRow(row.id, { spec: event.target.value })
-              }
-              className="min-w-0 border-r border-[#ebebeb] px-2 py-2 text-sm outline-none"
-            />
-            <input
-              value={row.previous}
-              readOnly
-              className="min-w-0 border-r border-[#ebebeb] bg-[#fcfcfc] px-2 py-2 text-sm text-[#4d4d4d] outline-none"
-            />
-            <input
-              value={row.today}
-              onChange={(event) =>
-                onUpdateRow(row.id, { today: event.target.value })
-              }
-              className="min-w-0 border-r border-[#ebebeb] px-2 py-2 text-sm outline-none"
-            />
-            <input
-              value={row.total}
-              readOnly
-              className="min-w-0 border-r border-[#ebebeb] bg-[#fcfcfc] px-2 py-2 text-sm font-semibold text-[#171717] outline-none"
-            />
-            <button
-              type="button"
-              className="flex items-center justify-center text-[#8f8f8f] transition hover:bg-[#f6f6f6] hover:text-[#171717]"
-              aria-label={`${row.name || title} 항목 삭제`}
-              onClick={() => onRemoveRow(row.id)}
-            >
-              <Trash2 size={14} aria-hidden />
-            </button>
-          </div>
-        ))}
       </div>
     </div>
   );
