@@ -4547,6 +4547,7 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
   const [activeTab, setActiveTab] =
     useState<ProjectDocumentTabKey>("daily-report");
   const [reports, setReports] = useState<ConstructionDailyReport[]>([]);
+  const [dailyReportRefreshKey, setDailyReportRefreshKey] = useState(0);
   const [projectSubcontractorNames, setProjectSubcontractorNames] = useState<
     string[]
   >([]);
@@ -4566,6 +4567,11 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     };
   }, [project.id]);
 
+  function refreshDailyReportDocuments() {
+    setReports(getProjectDailyReports(project.id));
+    setDailyReportRefreshKey((value) => value + 1);
+  }
+
   function saveDailyReportDocument(nextReport: ConstructionDailyReport) {
     const normalizedReport = applyDailyReportTotals(
       nextReport,
@@ -4583,13 +4589,38 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
 
     const nextProjectReports = getProjectDailyReports(project.id);
     setReports(nextProjectReports);
+    setDailyReportRefreshKey((value) => value + 1);
     setSelectedDocument(createDailyReportDocument(updatedReport));
+  }
+
+  function deleteDailyReportDocument(document: ProjectDocumentListItem) {
+    if (!document.report) {
+      return;
+    }
+
+    if (!window.confirm(`${document.title} 문서를 삭제하시겠습니까?`)) {
+      return;
+    }
+
+    storeDailyReports(
+      readDailyReports().filter((report) => report.id !== document.report?.id)
+    );
+    setReports(getProjectDailyReports(project.id));
+    setDailyReportRefreshKey((value) => value + 1);
+
+    if (selectedDocument?.id === document.id) {
+      setSelectedDocument(null);
+    }
   }
 
   return (
     <section>
       <div className="mb-8">
-        <DailyReportSection project={project} />
+        <DailyReportSection
+          project={project}
+          refreshKey={dailyReportRefreshKey}
+          onReportsChange={refreshDailyReportDocuments}
+        />
       </div>
 
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
@@ -4681,6 +4712,7 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
               <DocumentList
                 documents={dailyReportDocuments}
                 emptyTitle="등록된 공사일보가 없습니다."
+                onDeleteDocument={deleteDailyReportDocument}
                 onOpenDocument={setSelectedDocument}
               />
             ) : (
@@ -4710,10 +4742,12 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
 function DocumentList({
   documents,
   emptyTitle,
+  onDeleteDocument,
   onOpenDocument
 }: {
   documents: ProjectDocumentListItem[];
   emptyTitle: string;
+  onDeleteDocument?: (document: ProjectDocumentListItem) => void;
   onOpenDocument: (document: ProjectDocumentListItem) => void;
 }) {
   if (documents.length === 0) {
@@ -4731,35 +4765,53 @@ function DocumentList({
 
   return (
     <div className="overflow-hidden rounded-[8px] border border-[#ebebeb] bg-white">
-      <div className="grid grid-cols-[minmax(220px,1fr)_140px_120px_120px] border-b border-[#ebebeb] bg-[#fcfcfc] px-4 py-3 text-xs font-semibold text-[#4d4d4d] max-md:hidden">
+      <div className="grid grid-cols-[minmax(220px,1fr)_140px_120px_120px_52px] border-b border-[#ebebeb] bg-[#fcfcfc] px-4 py-3 text-xs font-semibold text-[#4d4d4d] max-md:hidden">
         <div>문서명</div>
         <div>작성일</div>
         <div>담당자</div>
         <div>상태</div>
+        <div className="text-center">삭제</div>
       </div>
       {documents.map((document) => (
-        <button
+        <div
           key={document.id}
-          type="button"
-          className="grid w-full grid-cols-[minmax(220px,1fr)_140px_120px_120px] items-center gap-3 border-b border-[#f2f2f2] px-4 py-3 text-left text-sm transition last:border-b-0 hover:bg-[#fcfcfc] max-md:grid-cols-1"
-          onClick={() => onOpenDocument(document)}
+          className="grid w-full grid-cols-[minmax(220px,1fr)_140px_120px_120px_52px] items-stretch border-b border-[#f2f2f2] text-sm last:border-b-0 max-md:grid-cols-[minmax(0,1fr)_52px]"
         >
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-[6px] border border-[#ebebeb] bg-white text-[#8f8f8f]">
-              <ClipboardList size={17} aria-hidden />
-            </span>
-            <span className="truncate font-semibold text-[#171717]">
-              {document.title}
-            </span>
+          <button
+            type="button"
+            className="col-span-4 grid grid-cols-[minmax(220px,1fr)_140px_120px_120px] items-center gap-3 px-4 py-3 text-left transition hover:bg-[#fcfcfc] max-md:col-span-1 max-md:grid-cols-1"
+            onClick={() => onOpenDocument(document)}
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-[6px] border border-[#ebebeb] bg-white text-[#8f8f8f]">
+                <ClipboardList size={17} aria-hidden />
+              </span>
+              <span className="truncate font-semibold text-[#171717]">
+                {document.title}
+              </span>
+            </div>
+            <div className="text-[#4d4d4d]">{formatKoreanDate(document.date)}</div>
+            <div className="text-[#4d4d4d]">{document.owner}</div>
+            <div>
+              <span className="inline-flex rounded-full border border-[#d8eadf] bg-[#f4fbf6] px-2.5 py-1 text-xs font-semibold text-[#25884f]">
+                {document.status}
+              </span>
+            </div>
+          </button>
+          <div className="flex items-center justify-center px-2">
+            {onDeleteDocument ? (
+              <button
+                type="button"
+                className="inline-flex size-8 items-center justify-center rounded-[4px] text-[#8f8f8f] transition hover:bg-[#f6f6f6] hover:text-[#d92d20]"
+                aria-label={`${document.title} 삭제`}
+                title="문서 삭제"
+                onClick={() => onDeleteDocument(document)}
+              >
+                <Trash2 size={15} aria-hidden />
+              </button>
+            ) : null}
           </div>
-          <div className="text-[#4d4d4d]">{formatKoreanDate(document.date)}</div>
-          <div className="text-[#4d4d4d]">{document.owner}</div>
-          <div>
-            <span className="inline-flex rounded-full border border-[#d8eadf] bg-[#f4fbf6] px-2.5 py-1 text-xs font-semibold text-[#25884f]">
-              {document.status}
-            </span>
-          </div>
-        </button>
+        </div>
       ))}
     </div>
   );
@@ -5975,7 +6027,15 @@ function ProjectComingSoonPage({
   );
 }
 
-function DailyReportSection({ project }: { project: WorkspaceProject }) {
+function DailyReportSection({
+  onReportsChange,
+  project,
+  refreshKey = 0
+}: {
+  onReportsChange?: () => void;
+  project: WorkspaceProject;
+  refreshKey?: number;
+}) {
   const [reports, setReports] = useState<ConstructionDailyReport[]>([]);
   const [projectSubcontractorNames, setProjectSubcontractorNames] = useState<
     string[]
@@ -6017,17 +6077,13 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
       const storedReports = getProjectDailyReports(project.id);
       setProjectSubcontractorNames(getProjectSubcontractorNames(project.id));
       setDailyReportTemplate(readDailyReportTemplate(project.id));
-
-      if (storedReports.length > 0) {
-        setReports(storedReports);
-        return;
-      }
+      setReports(storedReports);
     }, 0);
 
     return () => {
       window.clearTimeout(timer);
     };
-  }, [project]);
+  }, [project.id, refreshKey]);
 
   function replaceProjectReports(nextProjectReports: ConstructionDailyReport[]) {
     const otherReports = readDailyReports().filter(
@@ -6041,6 +6097,7 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
 
     storeDailyReports([...otherReports, ...sortedProjectReports]);
     setReports(sortedProjectReports);
+    onReportsChange?.();
   }
 
   function moveCalendarMonth(offset: number) {
