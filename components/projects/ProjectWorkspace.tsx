@@ -3935,11 +3935,14 @@ function ProjectDashboardTab({
   const today = getTodayInputValue();
   const todayReport = reports.find((report) => report.reportDate === today) ?? null;
   const latestReport = reports[0] ?? null;
-  const totalLaborCount = reports.reduce(
-    (sum, report) => sum + getReportTodayLaborCount(report),
-    0
-  );
+  const totalLaborCount = latestReport
+    ? getReportCumulativeLaborCount(latestReport)
+    : 0;
   const tradeLaborRows = latestReport ? getTradeLaborRows(latestReport) : [];
+  const maxTradeLaborCount = Math.max(
+    1,
+    ...tradeLaborRows.map((row) => row.count)
+  );
   const materialRows = latestReport
     ? getActiveQuantityRows(latestReport.materialRows)
     : [];
@@ -4028,7 +4031,7 @@ function ProjectDashboardTab({
                   key={row.trade}
                   label={row.trade}
                   value={`${row.count}명`}
-                  percent={Math.min(100, row.count * 10)}
+                  percent={Math.round((row.count / maxTradeLaborCount) * 100)}
                 />
               ))}
             </div>
@@ -4046,7 +4049,7 @@ function ProjectDashboardTab({
             )}
           </DashboardPanel>
 
-          <DashboardPanel title="금일 장비 현황" className="min-h-[168px]" hasMenu>
+          <DashboardPanel title="장비 현황" className="min-h-[168px]" hasMenu>
             {equipmentRows.length > 0 ? (
               <DashboardQuantityList rows={equipmentRows} />
             ) : (
@@ -4142,7 +4145,7 @@ function DashboardQuantityList({ rows }: { rows: DailyReportQuantityRow[] }) {
               {row.name}
             </p>
             <p className="shrink-0 text-xs font-medium text-[#4d4d4d]">
-              {row.today || row.total || "0"}
+              {formatDailyReportNumber(getDailyReportCumulativeNumber(row))}
             </p>
           </div>
           <p className="mt-1 truncate text-xs text-[#8f8f8f]">
@@ -4165,11 +4168,21 @@ function parseDashboardNumber(value: string | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function getLaborRowCount(row: DailyReportLaborRow) {
-  return parseDashboardNumber(row.today || row.total);
+function getDailyReportCumulativeNumber(
+  row: DailyReportLaborRow | DailyReportQuantityRow
+) {
+  if (row.total.trim()) {
+    return parseDashboardNumber(row.total);
+  }
+
+  return parseDashboardNumber(row.previous) + parseDashboardNumber(row.today);
 }
 
-function getReportTodayLaborCount(report: ConstructionDailyReport) {
+function getLaborRowCount(row: DailyReportLaborRow) {
+  return getDailyReportCumulativeNumber(row);
+}
+
+function getReportCumulativeLaborCount(report: ConstructionDailyReport) {
   return [
     ...report.contractorLaborRows,
     ...report.subcontractorLaborRows
@@ -4183,13 +4196,19 @@ function getTradeLaborRows(report: ConstructionDailyReport) {
     ...report.contractorLaborRows,
     ...report.subcontractorLaborRows
   ]) {
+    const trade = row.trade.trim();
+
+    if (!trade) {
+      continue;
+    }
+
     const count = getLaborRowCount(row);
 
     if (count <= 0) {
       continue;
     }
 
-    tradeCounts.set(row.trade, (tradeCounts.get(row.trade) ?? 0) + count);
+    tradeCounts.set(trade, (tradeCounts.get(trade) ?? 0) + count);
   }
 
   return [...tradeCounts.entries()]
@@ -4200,9 +4219,8 @@ function getTradeLaborRows(report: ConstructionDailyReport) {
 function getActiveQuantityRows(rows: DailyReportQuantityRow[]) {
   return rows.filter(
     (row) =>
-      parseDashboardNumber(row.today) > 0 ||
-      parseDashboardNumber(row.total) > 0 ||
-      Boolean(row.spec.trim())
+      Boolean(row.trade.trim()) &&
+      Boolean(row.name.trim())
   );
 }
 
