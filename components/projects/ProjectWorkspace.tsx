@@ -3941,9 +3941,16 @@ function ProjectDashboardTab({
   const tradeLaborRows = latestReport
     ? getSubcontractorTradeLaborRows(latestReport)
     : [];
+  const subcontractorLaborRows = latestReport
+    ? getSubcontractorCompanyLaborRows(latestReport)
+    : [];
   const maxTradeLaborCount = Math.max(
     1,
     ...tradeLaborRows.map((row) => row.count)
+  );
+  const maxSubcontractorLaborCount = Math.max(
+    1,
+    ...subcontractorLaborRows.map((row) => row.count)
   );
   const materialRows = latestReport
     ? getActiveQuantityRows(latestReport.materialRows)
@@ -4024,7 +4031,26 @@ function ProjectDashboardTab({
         )}
       </DashboardPanel>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.34fr)_minmax(0,1fr)]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(260px,336px)_minmax(260px,336px)_minmax(0,1fr)]">
+        <DashboardPanel title="협력사별 작업자 수" className="min-h-[360px]" hasMenu>
+          {subcontractorLaborRows.length > 0 ? (
+            <div className="mt-4 space-y-3">
+              {subcontractorLaborRows.map((row) => (
+                <DashboardMeter
+                  key={row.name}
+                  label={row.name}
+                  value={`${row.count}명`}
+                  percent={Math.round(
+                    (row.count / maxSubcontractorLaborCount) * 100
+                  )}
+                />
+              ))}
+            </div>
+          ) : (
+            <EmptyDashboardState />
+          )}
+        </DashboardPanel>
+
         <DashboardPanel title="공종별 작업자 수" className="min-h-[360px]" hasMenu>
           {tradeLaborRows.length > 0 ? (
             <div className="mt-4 space-y-3">
@@ -4213,6 +4239,25 @@ function getSubcontractorTradeLaborRows(report: ConstructionDailyReport) {
   return [...tradeCounts.entries()]
     .map(([trade, count]) => ({ trade, count }))
     .sort((left, right) => right.count - left.count || left.trade.localeCompare(right.trade));
+}
+
+function getSubcontractorCompanyLaborRows(report: ConstructionDailyReport) {
+  const companyCounts = new Map<string, number>();
+
+  for (const row of report.subcontractorLaborRows) {
+    const name = row.subcontractorName?.trim() || "협력사 미선택";
+    const count = getLaborRowCount(row);
+
+    if (count <= 0) {
+      continue;
+    }
+
+    companyCounts.set(name, (companyCounts.get(name) ?? 0) + count);
+  }
+
+  return [...companyCounts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
 }
 
 function getActiveQuantityRows(rows: DailyReportQuantityRow[]) {
