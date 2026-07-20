@@ -1,6 +1,12 @@
 import type { Readable } from "node:stream";
 
-export type StorageProvider = "LOCAL" | "S3" | "R2" | "GCS" | "BLOB";
+export type StorageProvider =
+  | "LOCAL"
+  | "S3"
+  | "R2"
+  | "GCS"
+  | "BLOB"
+  | "GOOGLE_DRIVE";
 
 export type PutObjectInput = {
   key: string;

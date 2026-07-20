@@ -3534,7 +3534,6 @@ function ProjectDetailWorkspace({
     >
   ) => void;
 }) {
-  const router = useRouter();
   const [editProject, setEditProject] = useState<WorkspaceProject | null>(null);
   const [viewerUploadVersion, setViewerUploadVersion] = useState("v1");
   const displayedModels = project
@@ -3726,7 +3725,7 @@ function ProjectDetailWorkspace({
               displayedModels={displayedModels}
               invitedMembers={invitedMembers}
               project={project}
-              onOpenSettings={() => router.push(`${projectBaseHref}/settings`)}
+              onUpdateProject={onUpdateProject}
             />
           ) : null}
 
@@ -3790,13 +3789,16 @@ function ProjectDetailWorkspace({
 function ProjectInfoPage({
   displayedModels,
   invitedMembers,
-  project,
-  onOpenSettings
+  onUpdateProject,
+  project
 }: {
   displayedModels: IfcModelSummary[];
   invitedMembers: ProjectInvitedMember[];
+  onUpdateProject: (
+    projectId: string,
+    patch: Partial<WorkspaceProjectEditableFields>
+  ) => void;
   project: WorkspaceProject;
-  onOpenSettings: () => void;
 }) {
   const [activeInfoTab, setActiveInfoTab] =
     useState<ProjectInfoTabKey>("sitePhotos");
@@ -3845,7 +3847,7 @@ function ProjectInfoPage({
           {activeInfoTab === "sitePhotos" ? (
             <ProjectSitePhotosTab
               project={project}
-              onOpenSettings={onOpenSettings}
+              onUpdateProject={onUpdateProject}
             />
           ) : null}
 
@@ -3868,11 +3870,60 @@ function ProjectInfoPage({
 
 function ProjectSitePhotosTab({
   project,
-  onOpenSettings
+  onUpdateProject
 }: {
   project: WorkspaceProject;
-  onOpenSettings: () => void;
+  onUpdateProject: (
+    projectId: string,
+    patch: Partial<WorkspaceProjectEditableFields>
+  ) => void;
 }) {
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoUploadError, setPhotoUploadError] = useState("");
+
+  async function uploadSitePhoto(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file || isUploadingPhoto) {
+      return;
+    }
+
+    setIsUploadingPhoto(true);
+    setPhotoUploadError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("projectId", project.id);
+      formData.append("file", file);
+
+      const response = await fetch("/api/projects/photos/upload", {
+        method: "POST",
+        body: formData
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        photo?: {
+          url: string;
+        };
+      };
+
+      if (!response.ok || !payload.photo?.url) {
+        throw new Error(payload.error || "사진 업로드에 실패했습니다.");
+      }
+
+      onUpdateProject(project.id, {
+        coverImage: payload.photo.url
+      });
+    } catch (error) {
+      setPhotoUploadError(
+        error instanceof Error ? error.message : "사진 업로드에 실패했습니다."
+      );
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  }
+
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
       <div>
@@ -3901,21 +3952,27 @@ function ProjectSitePhotosTab({
           )}
         </div>
 
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            className={secondaryButtonClass}
-            onClick={onOpenSettings}
+        <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+          {photoUploadError ? (
+            <p className="mr-auto text-sm font-medium text-[#c2410c]">
+              {photoUploadError}
+            </p>
+          ) : null}
+          <label
+            className={`${secondaryButtonClass} cursor-pointer ${
+              isUploadingPhoto ? "pointer-events-none opacity-60" : ""
+            }`}
           >
-            사진설정
-          </button>
-          <button
-            type="button"
-            className={secondaryButtonClass}
-            onClick={onOpenSettings}
-          >
-            사진 업로드
-          </button>
+            <Upload size={15} aria-hidden />
+            {isUploadingPhoto ? "업로드 중" : "사진 업로드"}
+            <input
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              disabled={isUploadingPhoto}
+              onChange={(event) => void uploadSitePhoto(event)}
+            />
+          </label>
         </div>
       </div>
 

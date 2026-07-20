@@ -1,4 +1,5 @@
 import { createGcsObjectStorage } from "@/lib/storage/gcsObjectStorage";
+import { createGoogleDriveObjectStorage } from "@/lib/storage/googleDriveObjectStorage";
 import { createLocalObjectStorage } from "@/lib/storage/localObjectStorage";
 import { createS3ObjectStorage } from "@/lib/storage/s3ObjectStorage";
 import { ObjectStorage, StorageProvider } from "@/lib/storage/types";
@@ -12,7 +13,8 @@ function normalizeStorageProvider(provider?: string | null) {
     normalizedProvider === "BLOB" ||
     normalizedProvider === "S3" ||
     normalizedProvider === "R2" ||
-    normalizedProvider === "GCS"
+    normalizedProvider === "GCS" ||
+    normalizedProvider === "GOOGLE_DRIVE"
   ) {
     return normalizedProvider;
   }
@@ -34,6 +36,10 @@ function getStorageProvider(providerOverride?: string | null): StorageProvider {
   }
 
   if (provider === "S3" || provider === "R2" || provider === "GCS") {
+    return provider;
+  }
+
+  if (provider === "GOOGLE_DRIVE") {
     return provider;
   }
 
@@ -71,6 +77,10 @@ export function createObjectStorage(providerOverride?: string | null): ObjectSto
       secretAccessKey: requireEnv("OBJECT_STORAGE_SECRET_ACCESS_KEY"),
       forcePathStyle: process.env.OBJECT_STORAGE_FORCE_PATH_STYLE === "true"
     });
+  }
+
+  if (provider === "GOOGLE_DRIVE") {
+    return createGoogleDriveObjectStorage();
   }
 
   return createGcsObjectStorage({
