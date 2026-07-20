@@ -685,11 +685,112 @@ function formatKoreanDate(value: string) {
   }).format(date);
 }
 
+function getLatestDailyReportSchemaSource(reports: ConstructionDailyReport[]) {
+  return [...reports].sort((left, right) => {
+    const timeDiff = getDailyReportTimeValue(right) - getDailyReportTimeValue(left);
+
+    return timeDiff || right.reportDate.localeCompare(left.reportDate);
+  })[0] ?? null;
+}
+
 function createDefaultDailyReport(
   project: WorkspaceProject,
-  reportDate = getTodayInputValue()
+  reportDate = getTodayInputValue(),
+  sourceReport: ConstructionDailyReport | null = null
 ): ConstructionDailyReport {
   const now = new Date().toISOString();
+  const workItems = sourceReport
+    ? sourceReport.workItems.map((item) => ({
+        id: crypto.randomUUID(),
+        trade: item.trade,
+        today: "",
+        tomorrow: ""
+      }))
+    : dailyReportWorkTemplates.map((trade) => ({
+        id: crypto.randomUUID(),
+        trade,
+        today: "",
+        tomorrow: ""
+      }));
+  const contractorLaborRows = sourceReport
+    ? getUniqueLaborSchemaRows(
+        sourceReport.contractorLaborRows,
+        "contractorLaborRows"
+      ).map((row) => ({
+        id: crypto.randomUUID(),
+        trade: row.trade,
+        role: row.role,
+        previous: "",
+        today: "0",
+        total: ""
+      }))
+    : dailyReportContractorLaborTemplates.map((row) => ({
+        id: crypto.randomUUID(),
+        trade: row.trade,
+        role: row.role,
+        previous: "",
+        today: "0",
+        total: ""
+      }));
+  const subcontractorLaborRows = sourceReport
+    ? getUniqueLaborSchemaRows(
+        sourceReport.subcontractorLaborRows,
+        "subcontractorLaborRows"
+      ).map((row) => ({
+        id: crypto.randomUUID(),
+        subcontractorName: row.subcontractorName ?? "",
+        trade: row.trade,
+        role: row.role,
+        previous: "",
+        today: "0",
+        total: ""
+      }))
+    : dailyReportSubcontractorLaborTemplates.map((row) => ({
+        id: crypto.randomUUID(),
+        trade: row.trade,
+        role: row.role,
+        previous: "",
+        today: "0",
+        total: ""
+      }));
+  const equipmentRows = sourceReport
+    ? getUniqueQuantitySchemaRows(sourceReport.equipmentRows).map((row) => ({
+        id: crypto.randomUUID(),
+        trade: row.trade,
+        name: row.name,
+        spec: row.spec,
+        previous: "",
+        today: "0",
+        total: ""
+      }))
+    : dailyReportEquipmentTemplates.map((row) => ({
+        id: crypto.randomUUID(),
+        trade: row.trade,
+        name: row.name,
+        spec: row.spec,
+        previous: "",
+        today: "0",
+        total: ""
+      }));
+  const materialRows = sourceReport
+    ? getUniqueQuantitySchemaRows(sourceReport.materialRows).map((row) => ({
+        id: crypto.randomUUID(),
+        trade: row.trade,
+        name: row.name,
+        spec: row.spec,
+        previous: "",
+        today: "0",
+        total: ""
+      }))
+    : dailyReportMaterialTemplates.map((row) => ({
+        id: crypto.randomUUID(),
+        trade: row.trade,
+        name: row.name,
+        spec: row.spec,
+        previous: "",
+        today: "0",
+        total: ""
+      }));
 
   return {
     id: crypto.randomUUID(),
@@ -704,46 +805,11 @@ function createDefaultDailyReport(
       role: "admin"
     }).name,
     notes: "",
-    workItems: dailyReportWorkTemplates.map((trade) => ({
-      id: crypto.randomUUID(),
-      trade,
-      today: "",
-      tomorrow: ""
-    })),
-    contractorLaborRows: dailyReportContractorLaborTemplates.map((row) => ({
-      id: crypto.randomUUID(),
-      trade: row.trade,
-      role: row.role,
-      previous: "",
-      today: "",
-      total: ""
-    })),
-    subcontractorLaborRows: dailyReportSubcontractorLaborTemplates.map((row) => ({
-      id: crypto.randomUUID(),
-      trade: row.trade,
-      role: row.role,
-      previous: "",
-      today: "",
-      total: ""
-    })),
-    equipmentRows: dailyReportEquipmentTemplates.map((row) => ({
-      id: crypto.randomUUID(),
-      trade: row.trade,
-      name: row.name,
-      spec: row.spec,
-      previous: "",
-      today: "",
-      total: ""
-    })),
-    materialRows: dailyReportMaterialTemplates.map((row) => ({
-      id: crypto.randomUUID(),
-      trade: row.trade,
-      name: row.name,
-      spec: row.spec,
-      previous: "",
-      today: "",
-      total: ""
-    })),
+    workItems,
+    contractorLaborRows,
+    subcontractorLaborRows,
+    equipmentRows,
+    materialRows,
     photos: [],
     createdAt: now,
     updatedAt: now
@@ -1180,28 +1246,9 @@ function collectProjectLaborSchemaRows(
   reports: ConstructionDailyReport[],
   collection: DailyReportLaborCollection
 ) {
-  const schemaRows: DailyReportLaborRow[] = [];
-  const seenKeys = new Set<string>();
-  const orderedReports = [...reports].sort((left, right) => {
-    const rowCountDiff = right[collection].length - left[collection].length;
+  const sourceReport = getLatestDailyReportSchemaSource(reports);
 
-    return rowCountDiff || getDailyReportTimeValue(right) - getDailyReportTimeValue(left);
-  });
-
-  for (const report of orderedReports) {
-    for (const row of report[collection]) {
-      const key = getLaborRowMatchKey(row, collection);
-
-      if (!key || seenKeys.has(key)) {
-        continue;
-      }
-
-      seenKeys.add(key);
-      schemaRows.push(row);
-    }
-  }
-
-  return schemaRows;
+  return getUniqueLaborSchemaRows(sourceReport?.[collection] ?? [], collection);
 }
 
 function getUniqueLaborSchemaRows(
@@ -1229,28 +1276,9 @@ function collectProjectQuantitySchemaRows(
   reports: ConstructionDailyReport[],
   collection: DailyReportQuantityCollection
 ) {
-  const schemaRows: DailyReportQuantityRow[] = [];
-  const seenKeys = new Set<string>();
-  const orderedReports = [...reports].sort((left, right) => {
-    const rowCountDiff = right[collection].length - left[collection].length;
+  const sourceReport = getLatestDailyReportSchemaSource(reports);
 
-    return rowCountDiff || getDailyReportTimeValue(right) - getDailyReportTimeValue(left);
-  });
-
-  for (const report of orderedReports) {
-    for (const row of report[collection]) {
-      const key = getQuantityRowMatchKey(row);
-
-      if (!key || seenKeys.has(key)) {
-        continue;
-      }
-
-      seenKeys.add(key);
-      schemaRows.push(row);
-    }
-  }
-
-  return schemaRows;
+  return getUniqueQuantitySchemaRows(sourceReport?.[collection] ?? []);
 }
 
 function getUniqueQuantitySchemaRows(rows: DailyReportQuantityRow[]) {
@@ -1297,7 +1325,7 @@ function syncLaborRowsToSchema(
         trade: schemaRow.trade,
         role: schemaRow.role,
         previous: existingRow?.previous ?? "",
-        today: existingRow?.today ?? "",
+        today: existingRow?.today ?? "0",
         total: existingRow?.total ?? ""
       };
     }),
@@ -1325,7 +1353,7 @@ function syncQuantityRowsToSchema(
         name: schemaRow.name,
         spec: schemaRow.spec,
         previous: existingRow?.previous ?? "",
-        today: existingRow?.today ?? "",
+        today: existingRow?.today ?? "0",
         total: existingRow?.total ?? ""
       };
     }),
@@ -1507,9 +1535,11 @@ function getLaborRowMatchKey(
     return "";
   }
 
-  return collection === "subcontractorLaborRows"
-    ? `${subcontractorName}::${trade}::${role}`
-    : `${trade}::${role}`;
+  if (collection === "subcontractorLaborRows") {
+    return subcontractorName ? `${subcontractorName}::${trade}::${role}` : "";
+  }
+
+  return `${trade}::${role}`;
 }
 
 function getPreviousLaborTotal(
@@ -5646,7 +5676,7 @@ function DailyReportDocumentPreview({
               trade: "",
               role: "",
               previous: "",
-              today: "",
+              today: "0",
               total: ""
             }
           ]
@@ -5679,7 +5709,7 @@ function DailyReportDocumentPreview({
               name: "",
               spec: "",
               previous: "",
-              today: "",
+              today: "0",
               total: ""
             }
           ]
@@ -6667,12 +6697,22 @@ function DailyReportSection({
       return;
     }
 
-    const defaultReport = createDefaultDailyReport(project, selectedDate);
+    const sourceReport = getLatestDailyReportSchemaSource(reports);
+    const defaultReport = createDefaultDailyReport(
+      project,
+      selectedDate,
+      sourceReport
+    );
     const nextReport = applyDailyReportTotals(
       defaultReport,
       getPreviousDailyReport(reports, defaultReport)
     );
-    replaceProjectReports([nextReport, ...reports]);
+    replaceProjectReports([nextReport, ...reports], {
+      contractorLaborRows: nextReport.contractorLaborRows,
+      subcontractorLaborRows: nextReport.subcontractorLaborRows,
+      equipmentRows: nextReport.equipmentRows,
+      materialRows: nextReport.materialRows
+    });
     setEditingReportId(nextReport.id);
     setIsDocumentMenuOpen(false);
   }
