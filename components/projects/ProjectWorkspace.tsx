@@ -215,6 +215,19 @@ type ConstructionDailyReport = {
   updatedAt: string;
 };
 
+type DailyReportLaborCollection =
+  | "contractorLaborRows"
+  | "subcontractorLaborRows";
+
+type DailyReportQuantityCollection = "equipmentRows" | "materialRows";
+
+type DailyReportSyncSchemas = {
+  contractorLaborRows?: DailyReportLaborRow[];
+  subcontractorLaborRows?: DailyReportLaborRow[];
+  equipmentRows?: DailyReportQuantityRow[];
+  materialRows?: DailyReportQuantityRow[];
+};
+
 type ProjectScheduleItem = {
   id: string;
   projectId: string;
@@ -810,17 +823,43 @@ function getDailyReportTimeValue(report: ConstructionDailyReport) {
   return new Date(report.updatedAt || report.createdAt || report.reportDate).getTime();
 }
 
-function pickProjectMaterialSchemaRows(reports: ConstructionDailyReport[]) {
-  const sourceReport = [...reports].sort((left, right) => {
-    const rowCountDiff = right.materialRows.length - left.materialRows.length;
+function collectProjectLaborSchemaRows(
+  reports: ConstructionDailyReport[],
+  collection: DailyReportLaborCollection
+) {
+  const schemaRows: DailyReportLaborRow[] = [];
+  const seenKeys = new Set<string>();
+  const orderedReports = [...reports].sort((left, right) => {
+    const rowCountDiff = right[collection].length - left[collection].length;
 
     return rowCountDiff || getDailyReportTimeValue(right) - getDailyReportTimeValue(left);
-  })[0];
-  const schemaRows: DailyReportQuantityRow[] = [];
+  });
+
+  for (const report of orderedReports) {
+    for (const row of report[collection]) {
+      const key = getLaborRowMatchKey(row, collection);
+
+      if (!key || seenKeys.has(key)) {
+        continue;
+      }
+
+      seenKeys.add(key);
+      schemaRows.push(row);
+    }
+  }
+
+  return schemaRows;
+}
+
+function getUniqueLaborSchemaRows(
+  rows: DailyReportLaborRow[],
+  collection: DailyReportLaborCollection
+) {
+  const schemaRows: DailyReportLaborRow[] = [];
   const seenKeys = new Set<string>();
 
-  for (const row of sourceReport?.materialRows ?? []) {
-    const key = getQuantityRowMatchKey(row);
+  for (const row of rows) {
+    const key = getLaborRowMatchKey(row, collection);
 
     if (!key || seenKeys.has(key)) {
       continue;
@@ -830,8 +869,23 @@ function pickProjectMaterialSchemaRows(reports: ConstructionDailyReport[]) {
     schemaRows.push(row);
   }
 
-  for (const report of reports) {
-    for (const row of report.materialRows) {
+  return schemaRows;
+}
+
+function collectProjectQuantitySchemaRows(
+  reports: ConstructionDailyReport[],
+  collection: DailyReportQuantityCollection
+) {
+  const schemaRows: DailyReportQuantityRow[] = [];
+  const seenKeys = new Set<string>();
+  const orderedReports = [...reports].sort((left, right) => {
+    const rowCountDiff = right[collection].length - left[collection].length;
+
+    return rowCountDiff || getDailyReportTimeValue(right) - getDailyReportTimeValue(left);
+  });
+
+  for (const report of orderedReports) {
+    for (const row of report[collection]) {
       const key = getQuantityRowMatchKey(row);
 
       if (!key || seenKeys.has(key)) {
@@ -846,29 +900,84 @@ function pickProjectMaterialSchemaRows(reports: ConstructionDailyReport[]) {
   return schemaRows;
 }
 
-function syncMaterialRowsToSchema(
-  materialRows: DailyReportQuantityRow[],
+function getUniqueQuantitySchemaRows(rows: DailyReportQuantityRow[]) {
+  const schemaRows: DailyReportQuantityRow[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const row of rows) {
+    const key = getQuantityRowMatchKey(row);
+
+    if (!key || seenKeys.has(key)) {
+      continue;
+    }
+
+    seenKeys.add(key);
+    schemaRows.push(row);
+  }
+
+  return schemaRows;
+}
+
+function syncLaborRowsToSchema(
+  laborRows: DailyReportLaborRow[],
+  schemaRows: DailyReportLaborRow[],
+  collection: DailyReportLaborCollection
+) {
+  const existingRows = new Map(
+    laborRows
+      .map((row) => [getLaborRowMatchKey(row, collection), row] as const)
+      .filter(([key]) => Boolean(key))
+  );
+
+  return [
+    ...schemaRows.map((schemaRow) => {
+      const existingRow = existingRows.get(
+        getLaborRowMatchKey(schemaRow, collection)
+      );
+
+      return {
+        id: existingRow?.id ?? crypto.randomUUID(),
+        subcontractorName:
+          collection === "subcontractorLaborRows"
+            ? schemaRow.subcontractorName ?? ""
+            : "",
+        trade: schemaRow.trade,
+        role: schemaRow.role,
+        previous: existingRow?.previous ?? "",
+        today: existingRow?.today ?? "",
+        total: existingRow?.total ?? ""
+      };
+    }),
+    ...laborRows.filter((row) => !getLaborRowMatchKey(row, collection))
+  ];
+}
+
+function syncQuantityRowsToSchema(
+  quantityRows: DailyReportQuantityRow[],
   schemaRows: DailyReportQuantityRow[]
 ) {
   const existingRows = new Map(
-    materialRows
+    quantityRows
       .map((row) => [getQuantityRowMatchKey(row), row] as const)
       .filter(([key]) => Boolean(key))
   );
 
-  return schemaRows.map((schemaRow) => {
-    const existingRow = existingRows.get(getQuantityRowMatchKey(schemaRow));
+  return [
+    ...schemaRows.map((schemaRow) => {
+      const existingRow = existingRows.get(getQuantityRowMatchKey(schemaRow));
 
-    return {
-      id: existingRow?.id ?? crypto.randomUUID(),
-      trade: schemaRow.trade,
-      name: schemaRow.name,
-      spec: schemaRow.spec,
-      previous: existingRow?.previous ?? "",
-      today: existingRow?.today ?? "",
-      total: existingRow?.total ?? ""
-    };
-  });
+      return {
+        id: existingRow?.id ?? crypto.randomUUID(),
+        trade: schemaRow.trade,
+        name: schemaRow.name,
+        spec: schemaRow.spec,
+        previous: existingRow?.previous ?? "",
+        today: existingRow?.today ?? "",
+        total: existingRow?.total ?? ""
+      };
+    }),
+    ...quantityRows.filter((row) => !getQuantityRowMatchKey(row))
+  ];
 }
 
 function recalculateProjectDailyReports(reports: ConstructionDailyReport[]) {
@@ -890,18 +999,48 @@ function recalculateProjectDailyReports(reports: ConstructionDailyReport[]) {
   );
 }
 
-function syncProjectDailyReportMaterialRows(
+function syncProjectDailyReports(
   reports: ConstructionDailyReport[],
-  schemaRows = pickProjectMaterialSchemaRows(reports)
+  schemas: DailyReportSyncSchemas = {}
 ) {
-  if (schemaRows.length === 0) {
-    return recalculateProjectDailyReports(reports);
-  }
+  const contractorLaborRows =
+    getUniqueLaborSchemaRows(
+      schemas.contractorLaborRows ??
+        collectProjectLaborSchemaRows(reports, "contractorLaborRows"),
+      "contractorLaborRows"
+    );
+  const subcontractorLaborRows =
+    getUniqueLaborSchemaRows(
+      schemas.subcontractorLaborRows ??
+        collectProjectLaborSchemaRows(reports, "subcontractorLaborRows"),
+      "subcontractorLaborRows"
+    );
+  const equipmentRows =
+    getUniqueQuantitySchemaRows(
+      schemas.equipmentRows ??
+        collectProjectQuantitySchemaRows(reports, "equipmentRows")
+    );
+  const materialRows =
+    getUniqueQuantitySchemaRows(
+      schemas.materialRows ??
+        collectProjectQuantitySchemaRows(reports, "materialRows")
+    );
 
   return recalculateProjectDailyReports(
     reports.map((report) => ({
       ...report,
-      materialRows: syncMaterialRowsToSchema(report.materialRows, schemaRows)
+      contractorLaborRows: syncLaborRowsToSchema(
+        report.contractorLaborRows,
+        contractorLaborRows,
+        "contractorLaborRows"
+      ),
+      subcontractorLaborRows: syncLaborRowsToSchema(
+        report.subcontractorLaborRows,
+        subcontractorLaborRows,
+        "subcontractorLaborRows"
+      ),
+      equipmentRows: syncQuantityRowsToSchema(report.equipmentRows, equipmentRows),
+      materialRows: syncQuantityRowsToSchema(report.materialRows, materialRows)
     }))
   );
 }
@@ -910,7 +1049,7 @@ function getProjectDailyReports(projectId: string) {
   const projectReports = readDailyReports()
     .filter((report) => report.projectId === projectId);
 
-  return syncProjectDailyReportMaterialRows(projectReports);
+  return syncProjectDailyReports(projectReports);
 }
 
 function normalizeProjectSubcontractor(
@@ -4547,12 +4686,17 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     const otherReports = readDailyReports().filter(
       (report) => report.projectId !== project.id
     );
-    const nextProjectReports = syncProjectDailyReportMaterialRows(
+    const nextProjectReports = syncProjectDailyReports(
       [
         ...reports.filter((report) => report.id !== updatedReport.id),
         updatedReport
       ],
-      updatedReport.materialRows
+      {
+        contractorLaborRows: updatedReport.contractorLaborRows,
+        subcontractorLaborRows: updatedReport.subcontractorLaborRows,
+        equipmentRows: updatedReport.equipmentRows,
+        materialRows: updatedReport.materialRows
+      }
     );
 
     storeDailyReports([...otherReports, ...nextProjectReports]);
@@ -6056,15 +6200,12 @@ function DailyReportSection({
 
   function replaceProjectReports(
     nextProjectReports: ConstructionDailyReport[],
-    options: { materialSchemaRows?: DailyReportQuantityRow[] } = {}
+    schemas: DailyReportSyncSchemas = {}
   ) {
     const otherReports = readDailyReports().filter(
       (report) => report.projectId !== project.id
     );
-    const sortedProjectReports = syncProjectDailyReportMaterialRows(
-      nextProjectReports,
-      options.materialSchemaRows
-    );
+    const sortedProjectReports = syncProjectDailyReports(nextProjectReports, schemas);
 
     storeDailyReports([...otherReports, ...sortedProjectReports]);
     setReports(sortedProjectReports);
@@ -6204,24 +6345,27 @@ function DailyReportSection({
       return;
     }
 
-    replaceProjectReports(
-      reports.map((report) =>
-        report.id === activeReportId
-          ? {
-              ...applyDailyReportTotals(
-                {
-                  ...report,
-                  [collection]: report[collection].map((row) =>
-                    row.id === rowId ? { ...row, ...patch } : row
-                  )
-                },
-                getPreviousDailyReport(reports, report)
-              ),
-              updatedAt: new Date().toISOString()
-            }
-          : report
-      )
+    const nextReports = reports.map((report) =>
+      report.id === activeReportId
+        ? {
+            ...applyDailyReportTotals(
+              {
+                ...report,
+                [collection]: report[collection].map((row) =>
+                  row.id === rowId ? { ...row, ...patch } : row
+                )
+              },
+              getPreviousDailyReport(reports, report)
+            ),
+            updatedAt: new Date().toISOString()
+          }
+        : report
     );
+    const nextReport = nextReports.find((report) => report.id === activeReportId);
+
+    replaceProjectReports(nextReports, {
+      [collection]: nextReport?.[collection]
+    });
   }
 
   function updateQuantityRow(
@@ -6254,8 +6398,7 @@ function DailyReportSection({
     const nextReport = nextReports.find((report) => report.id === activeReportId);
 
     replaceProjectReports(nextReports, {
-      materialSchemaRows:
-        collection === "materialRows" ? nextReport?.materialRows : undefined
+      [collection]: nextReport?.[collection]
     });
   }
 
@@ -6316,33 +6459,36 @@ function DailyReportSection({
       return;
     }
 
-    replaceProjectReports(
-      reports.map((report) =>
-        report.id === activeReportId
-          ? {
-              ...applyDailyReportTotals(
-                {
-                  ...report,
-                  [collection]: [
-                    ...report[collection],
-                    {
-                      id: crypto.randomUUID(),
-                      subcontractorName: "",
-                      trade: "",
-                      role: "",
-                      previous: "",
-                      today: "",
-                      total: ""
-                    }
-                  ]
-                },
-                getPreviousDailyReport(reports, report)
-              ),
-              updatedAt: new Date().toISOString()
-            }
-          : report
-      )
+    const nextReports = reports.map((report) =>
+      report.id === activeReportId
+        ? {
+            ...applyDailyReportTotals(
+              {
+                ...report,
+                [collection]: [
+                  ...report[collection],
+                  {
+                    id: crypto.randomUUID(),
+                    subcontractorName: "",
+                    trade: "",
+                    role: "",
+                    previous: "",
+                    today: "",
+                    total: ""
+                  }
+                ]
+              },
+              getPreviousDailyReport(reports, report)
+            ),
+            updatedAt: new Date().toISOString()
+          }
+        : report
     );
+    const nextReport = nextReports.find((report) => report.id === activeReportId);
+
+    replaceProjectReports(nextReports, {
+      [collection]: nextReport?.[collection]
+    });
   }
 
   function removeLaborRow(
@@ -6355,17 +6501,20 @@ function DailyReportSection({
       return;
     }
 
-    replaceProjectReports(
-      reports.map((report) =>
-        report.id === activeReportId
-          ? {
-              ...report,
-              [collection]: report[collection].filter((row) => row.id !== rowId),
-              updatedAt: new Date().toISOString()
-            }
-          : report
-      )
+    const nextReports = reports.map((report) =>
+      report.id === activeReportId
+        ? {
+            ...report,
+            [collection]: report[collection].filter((row) => row.id !== rowId),
+            updatedAt: new Date().toISOString()
+          }
+        : report
     );
+    const nextReport = nextReports.find((report) => report.id === activeReportId);
+
+    replaceProjectReports(nextReports, {
+      [collection]: nextReport?.[collection]
+    });
   }
 
   function addQuantityRow(collection: "equipmentRows" | "materialRows") {
@@ -6403,8 +6552,7 @@ function DailyReportSection({
     const nextReport = nextReports.find((report) => report.id === activeReportId);
 
     replaceProjectReports(nextReports, {
-      materialSchemaRows:
-        collection === "materialRows" ? nextReport?.materialRows : undefined
+      [collection]: nextReport?.[collection]
     });
   }
 
@@ -6430,8 +6578,7 @@ function DailyReportSection({
     const nextReport = nextReports.find((report) => report.id === activeReportId);
 
     replaceProjectReports(nextReports, {
-      materialSchemaRows:
-        collection === "materialRows" ? nextReport?.materialRows : undefined
+      [collection]: nextReport?.[collection]
     });
   }
 
