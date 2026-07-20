@@ -3938,7 +3938,9 @@ function ProjectDashboardTab({
   const totalLaborCount = latestReport
     ? getReportCumulativeLaborCount(latestReport)
     : 0;
-  const tradeLaborRows = latestReport ? getTradeLaborRows(latestReport) : [];
+  const tradeLaborRows = latestReport
+    ? getSubcontractorTradeLaborRows(latestReport)
+    : [];
   const maxTradeLaborCount = Math.max(
     1,
     ...tradeLaborRows.map((row) => row.count)
@@ -4189,13 +4191,10 @@ function getReportCumulativeLaborCount(report: ConstructionDailyReport) {
   ].reduce((sum, row) => sum + getLaborRowCount(row), 0);
 }
 
-function getTradeLaborRows(report: ConstructionDailyReport) {
+function getSubcontractorTradeLaborRows(report: ConstructionDailyReport) {
   const tradeCounts = new Map<string, number>();
 
-  for (const row of [
-    ...report.contractorLaborRows,
-    ...report.subcontractorLaborRows
-  ]) {
+  for (const row of report.subcontractorLaborRows) {
     const trade = row.trade.trim();
 
     if (!trade) {
