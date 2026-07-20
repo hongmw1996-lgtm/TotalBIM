@@ -9,9 +9,7 @@ import {
   CalendarDays,
   ChartNoAxesGantt,
   ClipboardList,
-  ClipboardPaste,
   CloudSun,
-  Copy,
   Download,
   ExternalLink,
   FileText,
@@ -217,13 +215,6 @@ type ConstructionDailyReport = {
   updatedAt: string;
 };
 
-type DailyReportTemplateClipboard = {
-  copiedAt: string;
-  copiedFromDate: string;
-  projectId: string;
-  report: ConstructionDailyReport;
-};
-
 type ProjectScheduleItem = {
   id: string;
   projectId: string;
@@ -286,7 +277,6 @@ const PROJECTS_STORAGE_KEY = "bim_workspace_projects";
 const DEFAULT_PROJECT_DELETED_KEY = "bim_default_project_deleted";
 const TEAMS_STORAGE_KEY = "bim_workspace_teams";
 const DAILY_REPORTS_STORAGE_KEY = "bim_project_daily_reports";
-const DAILY_REPORT_TEMPLATE_STORAGE_KEY = "bim_project_daily_report_template";
 const PROJECT_SCHEDULES_STORAGE_KEY = "bim_project_schedules";
 const PROJECT_SUBCONTRACTORS_STORAGE_KEY = "bim_project_subcontractors";
 
@@ -816,176 +806,77 @@ function storeDailyReports(reports: ConstructionDailyReport[]) {
   window.localStorage.setItem(DAILY_REPORTS_STORAGE_KEY, JSON.stringify(reports));
 }
 
-function readDailyReportTemplate(projectId: string) {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const raw = window.localStorage.getItem(DAILY_REPORT_TEMPLATE_STORAGE_KEY);
-
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const template = JSON.parse(raw) as DailyReportTemplateClipboard;
-
-    return template.projectId === projectId ? template : null;
-  } catch {
-    return null;
-  }
+function getDailyReportTimeValue(report: ConstructionDailyReport) {
+  return new Date(report.updatedAt || report.createdAt || report.reportDate).getTime();
 }
 
-function storeDailyReportTemplate(template: DailyReportTemplateClipboard) {
-  window.localStorage.setItem(
-    DAILY_REPORT_TEMPLATE_STORAGE_KEY,
-    JSON.stringify(template)
-  );
-}
+function pickProjectMaterialSchemaRows(reports: ConstructionDailyReport[]) {
+  const sourceReport = [...reports].sort((left, right) => {
+    const rowCountDiff = right.materialRows.length - left.materialRows.length;
 
-function createDailyReportTemplateClipboard(
-  report: ConstructionDailyReport
-): DailyReportTemplateClipboard {
-  const now = new Date().toISOString();
-  const normalizedReport = normalizeDailyReport(report);
+    return rowCountDiff || getDailyReportTimeValue(right) - getDailyReportTimeValue(left);
+  })[0];
+  const schemaRows: DailyReportQuantityRow[] = [];
+  const seenKeys = new Set<string>();
 
-  return {
-    copiedAt: now,
-    copiedFromDate: normalizedReport.reportDate,
-    projectId: normalizedReport.projectId,
-    report: {
-      ...normalizedReport,
-      id: "daily-report-template",
-      weather: "맑음",
-      lowTemp: "",
-      highTemp: "",
-      notes: "",
-      workItems: normalizedReport.workItems.map((item) => ({
-        id: crypto.randomUUID(),
-        trade: item.trade,
-        today: "",
-        tomorrow: ""
-      })),
-      contractorLaborRows: normalizedReport.contractorLaborRows.map((row) => ({
-        id: crypto.randomUUID(),
-        trade: row.trade,
-        role: row.role,
-        previous: "",
-        today: "",
-        total: ""
-      })),
-      subcontractorLaborRows: normalizedReport.subcontractorLaborRows.map((row) => ({
-        id: crypto.randomUUID(),
-        subcontractorName: row.subcontractorName ?? "",
-        trade: row.trade,
-        role: row.role,
-        previous: "",
-        today: "",
-        total: ""
-      })),
-      materialRows: normalizedReport.materialRows.map((row) => ({
-        id: crypto.randomUUID(),
-        trade: row.trade,
-        name: row.name,
-        spec: row.spec,
-        previous: "",
-        today: "",
-        total: ""
-      })),
-      equipmentRows: normalizedReport.equipmentRows.map((row) => ({
-        id: crypto.randomUUID(),
-        trade: row.trade,
-        name: row.name,
-        spec: row.spec,
-        previous: "",
-        today: "",
-        total: ""
-      })),
-      photos: [],
-      createdAt: now,
-      updatedAt: now
+  for (const row of sourceReport?.materialRows ?? []) {
+    const key = getQuantityRowMatchKey(row);
+
+    if (!key || seenKeys.has(key)) {
+      continue;
     }
-  };
+
+    seenKeys.add(key);
+    schemaRows.push(row);
+  }
+
+  for (const report of reports) {
+    for (const row of report.materialRows) {
+      const key = getQuantityRowMatchKey(row);
+
+      if (!key || seenKeys.has(key)) {
+        continue;
+      }
+
+      seenKeys.add(key);
+      schemaRows.push(row);
+    }
+  }
+
+  return schemaRows;
 }
 
-function createDailyReportFromTemplate(
-  project: WorkspaceProject,
-  reportDate: string,
-  template: DailyReportTemplateClipboard,
-  reports: ConstructionDailyReport[]
+function syncMaterialRowsToSchema(
+  materialRows: DailyReportQuantityRow[],
+  schemaRows: DailyReportQuantityRow[]
 ) {
-  const now = new Date().toISOString();
-  const source = normalizeDailyReport(template.report);
-  const report: ConstructionDailyReport = {
-    ...source,
-    id: crypto.randomUUID(),
-    projectId: project.id,
-    reportDate,
-    siteManager:
-      source.siteManager ||
-      getProjectOwner(project, {
-        username: project.owner?.username ?? "admin",
-        name: project.owner?.name ?? "관리자",
-        role: "admin"
-      }).name,
-    workItems: source.workItems.map((item) => ({
-      id: crypto.randomUUID(),
-      trade: item.trade,
-      today: "",
-      tomorrow: ""
-    })),
-    contractorLaborRows: source.contractorLaborRows.map((row) => ({
-      id: crypto.randomUUID(),
-      trade: row.trade,
-      role: row.role,
-      previous: "",
-      today: "",
-      total: ""
-    })),
-    subcontractorLaborRows: source.subcontractorLaborRows.map((row) => ({
-      id: crypto.randomUUID(),
-      subcontractorName: row.subcontractorName ?? "",
-      trade: row.trade,
-      role: row.role,
-      previous: "",
-      today: "",
-      total: ""
-    })),
-    materialRows: source.materialRows.map((row) => ({
-      id: crypto.randomUUID(),
-      trade: row.trade,
-      name: row.name,
-      spec: row.spec,
-      previous: "",
-      today: "",
-      total: ""
-    })),
-    equipmentRows: source.equipmentRows.map((row) => ({
-      id: crypto.randomUUID(),
-      trade: row.trade,
-      name: row.name,
-      spec: row.spec,
-      previous: "",
-      today: "",
-      total: ""
-    })),
-    photos: [],
-    createdAt: now,
-    updatedAt: now
-  };
+  const existingRows = new Map(
+    materialRows
+      .map((row) => [getQuantityRowMatchKey(row), row] as const)
+      .filter(([key]) => Boolean(key))
+  );
 
-  return applyDailyReportTotals(report, getPreviousDailyReport(reports, report));
+  return schemaRows.map((schemaRow) => {
+    const existingRow = existingRows.get(getQuantityRowMatchKey(schemaRow));
+
+    return {
+      id: existingRow?.id ?? crypto.randomUUID(),
+      trade: schemaRow.trade,
+      name: schemaRow.name,
+      spec: schemaRow.spec,
+      previous: existingRow?.previous ?? "",
+      today: existingRow?.today ?? "",
+      total: existingRow?.total ?? ""
+    };
+  });
 }
 
-function getProjectDailyReports(projectId: string) {
-  const projectReports = readDailyReports()
-    .filter((report) => report.projectId === projectId)
-    .sort(
-      (left, right) =>
-        new Date(left.reportDate).getTime() -
-        new Date(right.reportDate).getTime()
-    );
-  const calculatedReports = projectReports.reduce<ConstructionDailyReport[]>(
+function recalculateProjectDailyReports(reports: ConstructionDailyReport[]) {
+  const ascendingReports = [...reports].sort(
+    (left, right) =>
+      new Date(left.reportDate).getTime() - new Date(right.reportDate).getTime()
+  );
+  const calculatedReports = ascendingReports.reduce<ConstructionDailyReport[]>(
     (calculated, report) => [
       ...calculated,
       applyDailyReportTotals(report, getPreviousDailyReport(calculated, report))
@@ -993,12 +884,33 @@ function getProjectDailyReports(projectId: string) {
     []
   );
 
-  return calculatedReports
-    .sort(
-      (left, right) =>
-        new Date(right.reportDate).getTime() -
-        new Date(left.reportDate).getTime()
-    );
+  return calculatedReports.sort(
+    (left, right) =>
+      new Date(right.reportDate).getTime() - new Date(left.reportDate).getTime()
+  );
+}
+
+function syncProjectDailyReportMaterialRows(
+  reports: ConstructionDailyReport[],
+  schemaRows = pickProjectMaterialSchemaRows(reports)
+) {
+  if (schemaRows.length === 0) {
+    return recalculateProjectDailyReports(reports);
+  }
+
+  return recalculateProjectDailyReports(
+    reports.map((report) => ({
+      ...report,
+      materialRows: syncMaterialRowsToSchema(report.materialRows, schemaRows)
+    }))
+  );
+}
+
+function getProjectDailyReports(projectId: string) {
+  const projectReports = readDailyReports()
+    .filter((report) => report.projectId === projectId);
+
+  return syncProjectDailyReportMaterialRows(projectReports);
 }
 
 function normalizeProjectSubcontractor(
@@ -4633,15 +4545,26 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
       updatedAt: new Date().toISOString()
     };
     const otherReports = readDailyReports().filter(
-      (report) => report.id !== updatedReport.id
+      (report) => report.projectId !== project.id
+    );
+    const nextProjectReports = syncProjectDailyReportMaterialRows(
+      [
+        ...reports.filter((report) => report.id !== updatedReport.id),
+        updatedReport
+      ],
+      updatedReport.materialRows
     );
 
-    storeDailyReports([...otherReports, updatedReport]);
+    storeDailyReports([...otherReports, ...nextProjectReports]);
 
-    const nextProjectReports = getProjectDailyReports(project.id);
-    setReports(nextProjectReports);
+    const storedProjectReports = getProjectDailyReports(project.id);
+    const storedUpdatedReport =
+      storedProjectReports.find((report) => report.id === updatedReport.id) ??
+      updatedReport;
+
+    setReports(storedProjectReports);
     setDailyReportRefreshKey((value) => value + 1);
-    setSelectedDocument(createDailyReportDocument(updatedReport));
+    setSelectedDocument(createDailyReportDocument(storedUpdatedReport));
   }
 
   function deleteDailyReportDocument(document: ProjectDocumentListItem) {
@@ -6092,8 +6015,6 @@ function DailyReportSection({
   const [selectedDate, setSelectedDate] = useState(getTodayInputValue());
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [isDocumentMenuOpen, setIsDocumentMenuOpen] = useState(false);
-  const [dailyReportTemplate, setDailyReportTemplate] =
-    useState<DailyReportTemplateClipboard | null>(null);
   const [calendarMonth, setCalendarMonth] = useState(() =>
     getTodayInputValue().slice(0, 7)
   );
@@ -6125,7 +6046,6 @@ function DailyReportSection({
     const timer = window.setTimeout(() => {
       const storedReports = getProjectDailyReports(project.id);
       setProjectSubcontractorNames(getProjectSubcontractorNames(project.id));
-      setDailyReportTemplate(readDailyReportTemplate(project.id));
       setReports(storedReports);
     }, 0);
 
@@ -6134,14 +6054,16 @@ function DailyReportSection({
     };
   }, [project.id, refreshKey]);
 
-  function replaceProjectReports(nextProjectReports: ConstructionDailyReport[]) {
+  function replaceProjectReports(
+    nextProjectReports: ConstructionDailyReport[],
+    options: { materialSchemaRows?: DailyReportQuantityRow[] } = {}
+  ) {
     const otherReports = readDailyReports().filter(
       (report) => report.projectId !== project.id
     );
-    const sortedProjectReports = [...nextProjectReports].sort(
-      (left, right) =>
-        new Date(right.reportDate).getTime() -
-        new Date(left.reportDate).getTime()
+    const sortedProjectReports = syncProjectDailyReportMaterialRows(
+      nextProjectReports,
+      options.materialSchemaRows
     );
 
     storeDailyReports([...otherReports, ...sortedProjectReports]);
@@ -6195,42 +6117,6 @@ function DailyReportSection({
       defaultReport,
       getPreviousDailyReport(reports, defaultReport)
     );
-    replaceProjectReports([nextReport, ...reports]);
-    setEditingReportId(nextReport.id);
-    setIsDocumentMenuOpen(false);
-  }
-
-  function copySelectedDailyReportTemplate() {
-    if (!selectedReport) {
-      return;
-    }
-
-    const template = createDailyReportTemplateClipboard(selectedReport);
-
-    storeDailyReportTemplate(template);
-    setDailyReportTemplate(template);
-    window.alert(
-      `${formatKoreanDate(selectedReport.reportDate)} 공사일보 양식을 복사했습니다.`
-    );
-  }
-
-  function pasteDailyReportTemplateToSelectedDate() {
-    if (!dailyReportTemplate) {
-      return;
-    }
-
-    if (selectedReport) {
-      window.alert("선택한 날짜에 이미 공사일보가 있습니다.");
-      return;
-    }
-
-    const nextReport = createDailyReportFromTemplate(
-      project,
-      selectedDate,
-      dailyReportTemplate,
-      reports
-    );
-
     replaceProjectReports([nextReport, ...reports]);
     setEditingReportId(nextReport.id);
     setIsDocumentMenuOpen(false);
@@ -6349,24 +6235,28 @@ function DailyReportSection({
       return;
     }
 
-    replaceProjectReports(
-      reports.map((report) =>
-        report.id === activeReportId
-          ? {
-              ...applyDailyReportTotals(
-                {
-                  ...report,
-                  [collection]: report[collection].map((row) =>
-                    row.id === rowId ? { ...row, ...patch } : row
-                  )
-                },
-                getPreviousDailyReport(reports, report)
-              ),
-              updatedAt: new Date().toISOString()
-            }
-          : report
-      )
+    const nextReports = reports.map((report) =>
+      report.id === activeReportId
+        ? {
+            ...applyDailyReportTotals(
+              {
+                ...report,
+                [collection]: report[collection].map((row) =>
+                  row.id === rowId ? { ...row, ...patch } : row
+                )
+              },
+              getPreviousDailyReport(reports, report)
+            ),
+            updatedAt: new Date().toISOString()
+          }
+        : report
     );
+    const nextReport = nextReports.find((report) => report.id === activeReportId);
+
+    replaceProjectReports(nextReports, {
+      materialSchemaRows:
+        collection === "materialRows" ? nextReport?.materialRows : undefined
+    });
   }
 
   function addWorkItem() {
@@ -6485,33 +6375,37 @@ function DailyReportSection({
       return;
     }
 
-    replaceProjectReports(
-      reports.map((report) =>
-        report.id === activeReportId
-          ? {
-              ...applyDailyReportTotals(
-                {
-                  ...report,
-                  [collection]: [
-                    ...report[collection],
-                    {
-                      id: crypto.randomUUID(),
-                      trade: "",
-                      name: "",
-                      spec: "",
-                      previous: "",
-                      today: "",
-                      total: ""
-                    }
-                  ]
-                },
-                getPreviousDailyReport(reports, report)
-              ),
-              updatedAt: new Date().toISOString()
-            }
-          : report
-      )
+    const nextReports = reports.map((report) =>
+      report.id === activeReportId
+        ? {
+            ...applyDailyReportTotals(
+              {
+                ...report,
+                [collection]: [
+                  ...report[collection],
+                  {
+                    id: crypto.randomUUID(),
+                    trade: "",
+                    name: "",
+                    spec: "",
+                    previous: "",
+                    today: "",
+                    total: ""
+                  }
+                ]
+              },
+              getPreviousDailyReport(reports, report)
+            ),
+            updatedAt: new Date().toISOString()
+          }
+        : report
     );
+    const nextReport = nextReports.find((report) => report.id === activeReportId);
+
+    replaceProjectReports(nextReports, {
+      materialSchemaRows:
+        collection === "materialRows" ? nextReport?.materialRows : undefined
+    });
   }
 
   function removeQuantityRow(
@@ -6524,17 +6418,21 @@ function DailyReportSection({
       return;
     }
 
-    replaceProjectReports(
-      reports.map((report) =>
-        report.id === activeReportId
-          ? {
-              ...report,
-              [collection]: report[collection].filter((row) => row.id !== rowId),
-              updatedAt: new Date().toISOString()
-            }
-          : report
-      )
+    const nextReports = reports.map((report) =>
+      report.id === activeReportId
+        ? {
+            ...report,
+            [collection]: report[collection].filter((row) => row.id !== rowId),
+            updatedAt: new Date().toISOString()
+          }
+        : report
     );
+    const nextReport = nextReports.find((report) => report.id === activeReportId);
+
+    replaceProjectReports(nextReports, {
+      materialSchemaRows:
+        collection === "materialRows" ? nextReport?.materialRows : undefined
+    });
   }
 
   return (
@@ -6686,19 +6584,6 @@ function DailyReportSection({
                   {selectedReport.workItems.filter((item) => item.today).length}건
                 </p>
               </button>
-              <button
-                type="button"
-                className={`${secondaryButtonClass} mt-3 w-full justify-center`}
-                onClick={copySelectedDailyReportTemplate}
-              >
-                <Copy size={15} aria-hidden />
-                양식 복사
-              </button>
-              {dailyReportTemplate ? (
-                <p className="mt-2 text-xs text-[#8f8f8f]">
-                  복사된 양식: {formatKoreanDate(dailyReportTemplate.copiedFromDate)}
-                </p>
-              ) : null}
             </>
           ) : (
             <>
@@ -6707,21 +6592,6 @@ function DailyReportSection({
                 <br />
                 오른쪽 위 + 버튼에서 문서를 추가하세요.
               </div>
-              {dailyReportTemplate ? (
-                <button
-                  type="button"
-                  className={`${primaryButtonClass} mt-3 w-full justify-center`}
-                  onClick={pasteDailyReportTemplateToSelectedDate}
-                >
-                  <ClipboardPaste size={15} aria-hidden />
-                  복사 양식 붙여넣기
-                </button>
-              ) : null}
-              {dailyReportTemplate ? (
-                <p className="mt-2 text-xs text-[#8f8f8f]">
-                  복사된 양식: {formatKoreanDate(dailyReportTemplate.copiedFromDate)}
-                </p>
-              ) : null}
             </>
           )}
         </aside>
