@@ -743,7 +743,12 @@ function normalizeDailyReport(report: ConstructionDailyReport) {
   ): DailyReportQuantityRow[] =>
     (rows ?? []).map((row) => ({
       ...row,
-      trade: row.trade ?? ""
+      trade: row.trade ?? "",
+      name: row.name ?? "",
+      spec: row.spec ?? "",
+      previous: row.previous ?? "",
+      today: row.today ?? "",
+      total: row.total ?? ""
     }));
   const legacyLaborRows = report.laborRows ?? [];
 
@@ -976,6 +981,88 @@ function applyDailyReportLaborTotals(
       normalizeRow("subcontractorLaborRows", row)
     )
   };
+}
+
+function getQuantityRowMatchKey(row: DailyReportQuantityRow) {
+  const trade = row.trade.trim();
+  const name = row.name.trim();
+  const spec = row.spec.trim();
+
+  if (!trade || !name) {
+    return "";
+  }
+
+  return `${trade}::${name}::${spec}`;
+}
+
+function getPreviousQuantityTotal(
+  previousReport: ConstructionDailyReport | null,
+  collection: "materialRows" | "equipmentRows",
+  row: DailyReportQuantityRow
+) {
+  const key = getQuantityRowMatchKey(row);
+
+  if (!previousReport || !key) {
+    return "";
+  }
+
+  const previousRow = previousReport[collection].find(
+    (item) => getQuantityRowMatchKey(item) === key
+  );
+
+  if (!previousRow) {
+    return "";
+  }
+
+  return (
+    previousRow.total ||
+    formatDailyReportNumber(
+      parseDashboardNumber(previousRow.previous) +
+        parseDashboardNumber(previousRow.today)
+    )
+  );
+}
+
+function applyDailyReportQuantityTotals(
+  report: ConstructionDailyReport,
+  previousReport: ConstructionDailyReport | null
+) {
+  const normalizeRow = (
+    collection: "materialRows" | "equipmentRows",
+    row: DailyReportQuantityRow
+  ) => {
+    const previous = getPreviousQuantityTotal(previousReport, collection, row);
+    const totalSource = parseDashboardNumber(previous) + parseDashboardNumber(row.today);
+
+    return {
+      ...row,
+      previous,
+      total:
+        previous || row.today.trim()
+          ? formatDailyReportNumber(totalSource)
+          : ""
+    };
+  };
+
+  return {
+    ...report,
+    materialRows: report.materialRows.map((row) =>
+      normalizeRow("materialRows", row)
+    ),
+    equipmentRows: report.equipmentRows.map((row) =>
+      normalizeRow("equipmentRows", row)
+    )
+  };
+}
+
+function applyDailyReportTotals(
+  report: ConstructionDailyReport,
+  previousReport: ConstructionDailyReport | null
+) {
+  return applyDailyReportQuantityTotals(
+    applyDailyReportLaborTotals(report, previousReport),
+    previousReport
+  );
 }
 
 function readFileAsDataUrl(file: File) {
@@ -4295,7 +4382,7 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
   }, [project.id]);
 
   function saveDailyReportDocument(nextReport: ConstructionDailyReport) {
-    const normalizedReport = applyDailyReportLaborTotals(
+    const normalizedReport = applyDailyReportTotals(
       nextReport,
       getPreviousDailyReport(reports, nextReport)
     );
@@ -4723,7 +4810,7 @@ function DailyReportDocumentPreview({
     patch: Partial<Omit<DailyReportLaborRow, "id">>
   ) {
     onChange(
-      applyDailyReportLaborTotals(
+      applyDailyReportTotals(
         {
           ...report,
           [collection]: report[collection].map((row) =>
@@ -4740,12 +4827,17 @@ function DailyReportDocumentPreview({
     rowId: string,
     patch: Partial<Omit<DailyReportQuantityRow, "id">>
   ) {
-    onChange({
-      ...report,
-      [collection]: report[collection].map((row) =>
-        row.id === rowId ? { ...row, ...patch } : row
+    onChange(
+      applyDailyReportTotals(
+        {
+          ...report,
+          [collection]: report[collection].map((row) =>
+            row.id === rowId ? { ...row, ...patch } : row
+          )
+        },
+        previousReport
       )
-    });
+    );
   }
 
   function addWorkItem() {
@@ -4772,7 +4864,7 @@ function DailyReportDocumentPreview({
 
   function addLaborRow(collection: "contractorLaborRows" | "subcontractorLaborRows") {
     onChange(
-      applyDailyReportLaborTotals(
+      applyDailyReportTotals(
         {
           ...report,
           [collection]: [
@@ -4804,21 +4896,26 @@ function DailyReportDocumentPreview({
   }
 
   function addQuantityRow(collection: "materialRows" | "equipmentRows") {
-    onChange({
-      ...report,
-      [collection]: [
-        ...report[collection],
+    onChange(
+      applyDailyReportTotals(
         {
-          id: crypto.randomUUID(),
-          trade: "",
-          name: "",
-          spec: "",
-          previous: "",
-          today: "",
-          total: ""
-        }
-      ]
-    });
+          ...report,
+          [collection]: [
+            ...report[collection],
+            {
+              id: crypto.randomUUID(),
+              trade: "",
+              name: "",
+              spec: "",
+              previous: "",
+              today: "",
+              total: ""
+            }
+          ]
+        },
+        previousReport
+      )
+    );
   }
 
   function removeQuantityRow(
@@ -4965,11 +5062,12 @@ function DailyReportDocumentPreview({
             />
           ) : (
             <DocumentSimpleTable
-              headers={["공종", "자재명", "규격", "금일", "누계"]}
+              headers={["공종", "자재명", "규격", "전일", "금일", "누계"]}
               rows={materialRows.map((row) => [
                 row.trade,
                 row.name,
                 row.spec || "-",
+                row.previous || "0",
                 row.today || "0",
                 row.total || "0"
               ])}
@@ -4990,11 +5088,12 @@ function DailyReportDocumentPreview({
             />
           ) : (
             <DocumentSimpleTable
-              headers={["공종", "장비명", "규격", "금일", "누계"]}
+              headers={["공종", "장비명", "규격", "전일", "금일", "누계"]}
               rows={equipmentRows.map((row) => [
                 row.trade,
                 row.name,
                 row.spec || "-",
+                row.previous || "0",
                 row.today || "0",
                 row.total || "0"
               ])}
@@ -5456,7 +5555,8 @@ function DocumentQuantityRowsEditor({
               />
               <DocumentEditableCell
                 value={row.previous}
-                onChange={(value) => onChange(row.id, { previous: value })}
+                readOnly
+                onChange={() => undefined}
               />
               <DocumentEditableCell
                 value={row.today}
@@ -5464,7 +5564,8 @@ function DocumentQuantityRowsEditor({
               />
               <DocumentEditableCell
                 value={row.total}
-                onChange={(value) => onChange(row.id, { total: value })}
+                readOnly
+                onChange={() => undefined}
               />
               <td className="border-b border-[#f2f2f2] px-2 py-2">
                 <button
@@ -5781,7 +5882,7 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
     );
 
     if (existingReport) {
-      const normalizedReport = applyDailyReportLaborTotals(
+      const normalizedReport = applyDailyReportTotals(
         existingReport,
         getPreviousDailyReport(reports, existingReport)
       );
@@ -5796,7 +5897,7 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
     }
 
     const defaultReport = createDefaultDailyReport(project, selectedDate);
-    const nextReport = applyDailyReportLaborTotals(
+    const nextReport = applyDailyReportTotals(
       defaultReport,
       getPreviousDailyReport(reports, defaultReport)
     );
@@ -5834,7 +5935,7 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
       reports.map((report) =>
         report.id === activeReportId
           ? {
-              ...applyDailyReportLaborTotals(
+              ...applyDailyReportTotals(
                 {
                   ...report,
                   ...patch
@@ -5891,7 +5992,7 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
       reports.map((report) =>
         report.id === activeReportId
           ? {
-              ...applyDailyReportLaborTotals(
+              ...applyDailyReportTotals(
                 {
                   ...report,
                   [collection]: report[collection].map((row) =>
@@ -5922,7 +6023,7 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
       reports.map((report) =>
         report.id === activeReportId
           ? {
-              ...applyDailyReportLaborTotals(
+              ...applyDailyReportTotals(
                 {
                   ...report,
                   [collection]: report[collection].map((row) =>
@@ -5999,7 +6100,7 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
       reports.map((report) =>
         report.id === activeReportId
           ? {
-              ...applyDailyReportLaborTotals(
+              ...applyDailyReportTotals(
                 {
                   ...report,
                   [collection]: [
@@ -6058,19 +6159,24 @@ function DailyReportSection({ project }: { project: WorkspaceProject }) {
       reports.map((report) =>
         report.id === activeReportId
           ? {
-              ...report,
-              [collection]: [
-                ...report[collection],
+              ...applyDailyReportTotals(
                 {
-                  id: crypto.randomUUID(),
-                  trade: "",
-                  name: "",
-                  spec: "",
-                  previous: "",
-                  today: "",
-                  total: ""
-                }
-              ],
+                  ...report,
+                  [collection]: [
+                    ...report[collection],
+                    {
+                      id: crypto.randomUUID(),
+                      trade: "",
+                      name: "",
+                      spec: "",
+                      previous: "",
+                      today: "",
+                      total: ""
+                    }
+                  ]
+                },
+                getPreviousDailyReport(reports, report)
+              ),
               updatedAt: new Date().toISOString()
             }
           : report
@@ -8182,10 +8288,8 @@ function DailyReportQuantityTable({
             />
             <input
               value={row.previous}
-              onChange={(event) =>
-                onUpdateRow(row.id, { previous: event.target.value })
-              }
-              className="min-w-0 border-r border-[#ebebeb] px-2 py-2 text-sm outline-none"
+              readOnly
+              className="min-w-0 border-r border-[#ebebeb] bg-[#fcfcfc] px-2 py-2 text-sm text-[#4d4d4d] outline-none"
             />
             <input
               value={row.today}
@@ -8196,10 +8300,8 @@ function DailyReportQuantityTable({
             />
             <input
               value={row.total}
-              onChange={(event) =>
-                onUpdateRow(row.id, { total: event.target.value })
-              }
-              className="min-w-0 border-r border-[#ebebeb] px-2 py-2 text-sm outline-none"
+              readOnly
+              className="min-w-0 border-r border-[#ebebeb] bg-[#fcfcfc] px-2 py-2 text-sm font-semibold text-[#171717] outline-none"
             />
             <button
               type="button"
