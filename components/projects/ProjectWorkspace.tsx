@@ -6270,6 +6270,7 @@ function DocumentLaborRowsEditor({
               />
               <DocumentEditableCell
                 value={row.today}
+                selectOnFocus
                 onChange={(value) => onChange(row.id, { today: value })}
               />
               <DocumentEditableCell
@@ -6357,6 +6358,7 @@ function DocumentQuantityRowsEditor({
               />
               <DocumentEditableCell
                 value={row.today}
+                selectOnFocus
                 onChange={(value) => onChange(row.id, { today: value })}
               />
               <DocumentEditableCell
@@ -6394,10 +6396,12 @@ function DocumentEditableHeader({ children }: { children: ReactNode }) {
 function DocumentEditableCell({
   onChange,
   readOnly = false,
+  selectOnFocus = false,
   value
 }: {
   onChange: (value: string) => void;
   readOnly?: boolean;
+  selectOnFocus?: boolean;
   value: string;
 }) {
   return (
@@ -6407,6 +6411,16 @@ function DocumentEditableCell({
         value={value}
         readOnly={readOnly}
         onChange={(event) => onChange(event.target.value)}
+        onFocus={(event) => {
+          if (selectOnFocus && !readOnly) {
+            event.currentTarget.select();
+          }
+        }}
+        onMouseUp={(event) => {
+          if (selectOnFocus && !readOnly) {
+            event.preventDefault();
+          }
+        }}
         className={`h-8 w-full rounded-[4px] border border-[#ebebeb] px-2 text-sm outline-none transition focus:border-[#171717] ${
           readOnly
             ? "bg-[#fcfcfc] font-semibold text-[#4d4d4d]"
