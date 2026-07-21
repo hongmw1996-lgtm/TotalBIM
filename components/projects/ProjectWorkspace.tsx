@@ -5696,6 +5696,8 @@ type InspectionRequestChecklistRow = {
   standard: string;
 };
 
+type InspectionRequestTemplateKey = "steel-beam" | "rebar" | "deck-plate";
+
 type InspectionRequestDocumentData = {
   attachmentText: string;
   checklist: {
@@ -5717,6 +5719,15 @@ type InspectionRequestDocumentData = {
   siteManager: string;
   supervisingInspector: string;
 };
+
+const inspectionRequestTemplates: Array<{
+  key: InspectionRequestTemplateKey;
+  label: string;
+}> = [
+  { key: "steel-beam", label: "철골보" },
+  { key: "rebar", label: "철근" },
+  { key: "deck-plate", label: "데크플레이트" }
+];
 
 const steelBeamInspectionChecklistRows: InspectionRequestChecklistRow[] = [
   {
@@ -5760,6 +5771,82 @@ const steelBeamInspectionChecklistRows: InspectionRequestChecklistRow[] = [
     standard: "업체명 / 측정원 확인"
   }
 ];
+
+const rebarInspectionChecklistRows: InspectionRequestChecklistRow[] = [
+  {
+    item: "1. 철근의 규격, 수량, 간격은 도면과 일치하는가?",
+    standard: "설계도서 / 육안검사"
+  },
+  {
+    item: "2. 철근 이음 및 정착 길이는 기준에 적합한가?",
+    standard: "시방서 / 실측"
+  },
+  {
+    item: "3. 피복두께 확보 상태는 적정한가?",
+    standard: "스페이서 확인 / 실측"
+  },
+  {
+    item: "4. 개구부, 매립물 주변 보강근은 적정하게 배근되었는가?",
+    standard: "설계도서 / 육안검사"
+  }
+];
+
+const deckPlateInspectionChecklistRows: InspectionRequestChecklistRow[] = [
+  {
+    item: "1. 데크플레이트 규격 및 설치 위치는 도면과 일치하는가?",
+    standard: "설계도서 / 육안검사"
+  },
+  {
+    item: "2. 데크플레이트 처짐, 손상, 변형 여부는 양호한가?",
+    standard: "육안검사"
+  },
+  {
+    item: "3. 고정철물 및 용접 상태는 적정한가?",
+    standard: "시방서 / 육안검사"
+  },
+  {
+    item: "4. 개구부 보강 및 단부 마감은 적정하게 시공되었는가?",
+    standard: "설계도서 / 육안검사"
+  }
+];
+
+function getInspectionRequestTemplate(
+  templateKey: InspectionRequestTemplateKey
+) {
+  switch (templateKey) {
+    case "rebar":
+      return {
+        checklistRows: rebarInspectionChecklistRows,
+        drawingNumber: "구조도 / 철근 배근도",
+        inspectionPart: "철근 배근 구간",
+        inspectionSummary: "철근 배근, 이음, 정착, 피복두께",
+        label: "철근",
+        subTrade: "철근 배근 검사",
+        trade: "철근콘크리트공사"
+      };
+    case "deck-plate":
+      return {
+        checklistRows: deckPlateInspectionChecklistRows,
+        drawingNumber: "데크플레이트 시공상세도",
+        inspectionPart: "데크플레이트 설치 구간",
+        inspectionSummary: "데크플레이트 설치, 고정, 보강 상태",
+        label: "데크플레이트",
+        subTrade: "데크플레이트 설치 검사",
+        trade: "철골공사"
+      };
+    case "steel-beam":
+    default:
+      return {
+        checklistRows: steelBeamInspectionChecklistRows,
+        drawingNumber: "철골 시공상세도",
+        inspectionPart: "지하1층 A-Zone 철골 보",
+        inspectionSummary: "철골 보 조립, 용접, 비파괴검사",
+        label: "철골보",
+        subTrade: "수직도 및 수평도, 비파괴 검사",
+        trade: "철골공사"
+      };
+  }
+}
 
 function createDailyReportDocument(report: ConstructionDailyReport) {
   return {
@@ -5822,8 +5909,10 @@ function storeProjectDocuments(documents: StoredProjectDocument[]) {
 function createInspectionRequestDocumentData(
   project: WorkspaceProject,
   requestDate: string,
-  requestNo: string
+  requestNo: string,
+  templateKey: InspectionRequestTemplateKey = "steel-beam"
 ): InspectionRequestDocumentData {
+  const template = getInspectionRequestTemplate(templateKey);
   const ownerName =
     project.owner?.name ||
     getProjectOwner(project, {
@@ -5835,15 +5924,15 @@ function createInspectionRequestDocumentData(
   return {
     attachmentText: "검측체크리스트, 사진대지, 도면, 공사참여자 실명부",
     checklist: {
-      drawingNumber: "철골 시공상세도",
-      rows: steelBeamInspectionChecklistRows,
-      subTrade: "수직도 및 수평도, 비파괴 검사",
-      trade: "철골공사"
+      drawingNumber: template.drawingNumber,
+      rows: template.checklistRows,
+      subTrade: template.subTrade,
+      trade: template.trade
     },
     constructionName: project.name,
-    inspectionPart: "지하1층 A-Zone 철골 보",
+    inspectionPart: template.inspectionPart,
     inspectionRequestDate: requestDate,
-    inspectionSummary: "철골 보 조립, 용접, 비파괴검사",
+    inspectionSummary: template.inspectionSummary,
     locationAndTrade: project.name,
     recipient: project.inspector || "감리단",
     requestNo,
@@ -5873,6 +5962,9 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
   const [dailyReportRefreshKey, setDailyReportRefreshKey] = useState(0);
   const [dailyReportPdfEndDate, setDailyReportPdfEndDate] = useState("");
   const [dailyReportPdfStartDate, setDailyReportPdfStartDate] = useState("");
+  const [editingDocumentOnOpenId, setEditingDocumentOnOpenId] = useState<
+    string | null
+  >(null);
   const [isNewDocumentMenuOpen, setIsNewDocumentMenuOpen] = useState(false);
   const [projectSubcontractorNames, setProjectSubcontractorNames] = useState<
     string[]
@@ -5917,6 +6009,7 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     setIsNewDocumentMenuOpen(false);
 
     if (existingReport) {
+      setEditingDocumentOnOpenId(existingReport.id);
       setSelectedDocument(createDailyReportDocument(existingReport));
       return;
     }
@@ -5944,11 +6037,13 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     storeDailyReports([...otherReports, ...nextProjectReports]);
     setReports(nextProjectReports);
     setDailyReportRefreshKey((value) => value + 1);
+    setEditingDocumentOnOpenId(nextReport.id);
     setSelectedDocument(createDailyReportDocument(nextReport));
   }
 
   function createStoredProjectDocument(
-    documentType: Exclude<ProjectDocumentTabKey, "daily-report">
+    documentType: Exclude<ProjectDocumentTabKey, "daily-report">,
+    inspectionTemplateKey: InspectionRequestTemplateKey = "steel-beam"
   ) {
     const documentMeta = projectDocumentTabs.find(
       (tab) => tab.key === documentType
@@ -5959,9 +6054,10 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     }
 
     const today = getTodayInputValue();
+    const inspectionTemplate = getInspectionRequestTemplate(inspectionTemplateKey);
     const title =
       documentType === "inspection-request"
-        ? `${formatKoreanDate(today)} 철골보 검측요청서`
+        ? `${formatKoreanDate(today)} ${inspectionTemplate.label} 검측요청서`
         : `${formatKoreanDate(today)} ${documentMeta.label}`;
     const nextDocument: StoredProjectDocument = {
       id: crypto.randomUUID(),
@@ -5971,7 +6067,12 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
       date: today,
       inspectionRequest:
         documentType === "inspection-request"
-          ? createInspectionRequestDocumentData(project, today, title)
+          ? createInspectionRequestDocumentData(
+              project,
+              today,
+              title,
+              inspectionTemplateKey
+            )
           : undefined,
       owner: "관리자",
       status: "작성됨"
@@ -5985,13 +6086,18 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     setSelectedDocument(nextDocument);
   }
 
-  function createProjectDocument(documentType: ProjectDocumentTabKey) {
-    if (documentType === "daily-report") {
+  function createActiveTabDocument() {
+    if (activeTab === "daily-report") {
       createDailyReportManagedDocument();
       return;
     }
 
-    createStoredProjectDocument(documentType);
+    if (activeTab === "inspection-request") {
+      setIsNewDocumentMenuOpen((value) => !value);
+      return;
+    }
+
+    createStoredProjectDocument(activeTab);
   }
 
   function saveDailyReportDocument(nextReport: ConstructionDailyReport) {
@@ -6106,65 +6212,72 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
           </h2>
           <p className="mt-1 text-sm text-[#4d4d4d]">{project.name}</p>
         </div>
-        <div className="relative">
-          <button
-            type="button"
-            className={primaryButtonClass}
-            onClick={() => setIsNewDocumentMenuOpen((value) => !value)}
-          >
-            <Plus size={15} aria-hidden />
-            새 문서
-          </button>
-          {isNewDocumentMenuOpen ? (
-            <div className="absolute right-0 z-20 mt-2 w-52 overflow-hidden rounded-[8px] border border-[#ebebeb] bg-white py-1 shadow-xl">
-              {projectDocumentTabs.map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
-                  onClick={() => createProjectDocument(tab.key)}
-                >
-                  <span className="inline-flex size-7 items-center justify-center rounded-[5px] bg-[#f6f6f6] text-[11px] font-semibold text-[#6f6f6f]">
-                    {tab.code}
-                  </span>
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
       </div>
 
       <div className="rounded-[8px] border border-[#ebebeb] bg-white">
         <div className="border-b border-[#ebebeb] px-4 pt-4">
-          <div className="flex gap-1 overflow-x-auto">
-            {projectDocumentTabs.map((tab) => {
-              const isActive = tab.key === activeTab;
+          <div className="flex items-end justify-between gap-3">
+            <div className="flex min-w-0 gap-1 overflow-x-auto">
+              {projectDocumentTabs.map((tab) => {
+                const isActive = tab.key === activeTab;
 
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  className={`flex h-10 shrink-0 items-center gap-2 rounded-t-[8px] border border-b-0 px-4 text-sm font-medium transition ${
-                    isActive
-                      ? "border-[#171717] bg-white text-[#171717]"
-                      : "border-[#ebebeb] bg-[#fcfcfc] text-[#4d4d4d] hover:bg-white hover:text-[#171717]"
-                  }`}
-                  onClick={() => setActiveTab(tab.key)}
-                >
-                  <span
-                    className={`inline-flex size-6 items-center justify-center rounded-[5px] text-[11px] font-semibold ${
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    className={`flex h-10 shrink-0 items-center gap-2 rounded-t-[8px] border border-b-0 px-4 text-sm font-medium transition ${
                       isActive
-                        ? "bg-[#171717] text-white"
-                        : "bg-white text-[#8f8f8f]"
+                        ? "border-[#171717] bg-white text-[#171717]"
+                        : "border-[#ebebeb] bg-[#fcfcfc] text-[#4d4d4d] hover:bg-white hover:text-[#171717]"
                     }`}
+                    onClick={() => {
+                      setActiveTab(tab.key);
+                      setIsNewDocumentMenuOpen(false);
+                    }}
                   >
-                    {tab.code}
-                  </span>
-                  {tab.label}
-                </button>
-              );
-            })}
+                    <span
+                      className={`inline-flex size-6 items-center justify-center rounded-[5px] text-[11px] font-semibold ${
+                        isActive
+                          ? "bg-[#171717] text-white"
+                          : "bg-white text-[#8f8f8f]"
+                      }`}
+                    >
+                      {tab.code}
+                    </span>
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="relative shrink-0 pb-1">
+              <button
+                type="button"
+                className={primaryButtonClass}
+                onClick={createActiveTabDocument}
+              >
+                <Plus size={15} aria-hidden />
+                새 문서
+              </button>
+              {activeTab === "inspection-request" && isNewDocumentMenuOpen ? (
+                <div className="absolute right-0 z-20 mt-2 w-48 overflow-hidden rounded-[8px] border border-[#ebebeb] bg-white py-1 shadow-xl">
+                  {inspectionRequestTemplates.map((template) => (
+                    <button
+                      key={template.key}
+                      type="button"
+                      className="flex w-full items-center px-3 py-2 text-left text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
+                      onClick={() =>
+                        createStoredProjectDocument(
+                          "inspection-request",
+                          template.key
+                        )
+                      }
+                    >
+                      {template.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -6260,10 +6373,15 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
 
       {selectedDocument ? (
         <DocumentPreviewDialog
+          key={selectedDocument.id}
           document={selectedDocument}
+          initialEditing={selectedDocument.id === editingDocumentOnOpenId}
           project={project}
           subcontractorOptions={projectSubcontractorNames}
-          onClose={() => setSelectedDocument(null)}
+          onClose={() => {
+            setEditingDocumentOnOpenId(null);
+            setSelectedDocument(null);
+          }}
           onSaveReport={saveDailyReportDocument}
         />
       ) : null}
@@ -6351,18 +6469,20 @@ function DocumentList({
 
 function DocumentPreviewDialog({
   document,
+  initialEditing = false,
   project,
   subcontractorOptions,
   onClose,
   onSaveReport
 }: {
   document: ProjectDocumentListItem;
+  initialEditing?: boolean;
   project: WorkspaceProject;
   subcontractorOptions: string[];
   onClose: () => void;
   onSaveReport: (report: ConstructionDailyReport) => void;
 }) {
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(initialEditing);
   const [draftReport, setDraftReport] = useState<ConstructionDailyReport | null>(
     document.report ?? null
   );
