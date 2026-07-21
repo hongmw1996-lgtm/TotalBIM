@@ -6235,7 +6235,10 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
         />
       </div>
 
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+      <div
+        id="project-document-manager"
+        className="mb-5 flex scroll-mt-8 flex-wrap items-end justify-between gap-3"
+      >
         <div>
           <h2 className="text-2xl font-semibold tracking-[-0.03em]">
             문서관리
@@ -8322,6 +8325,13 @@ function DailyReportSection({
     setIsDocumentMenuOpen(false);
   }
 
+  function openDocumentManager() {
+    setIsDocumentMenuOpen(false);
+    document
+      .getElementById("project-document-manager")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function updateSelectedReport(
     patch: Partial<
       Pick<
@@ -8506,6 +8516,13 @@ function DailyReportSection({
                   disabled
                 >
                   검측요청서
+                </button>
+                <button
+                  type="button"
+                  className="block w-full px-3 py-2 text-left text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
+                  onClick={openDocumentManager}
+                >
+                  문서관리
                 </button>
               </div>
             ) : null}
