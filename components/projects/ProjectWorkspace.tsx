@@ -74,7 +74,7 @@ type ProjectComingSoonPageKey = Exclude<
   "info" | "viewer" | "documents" | "settings" | "subcontractors"
 >;
 
-type ProjectInfoTabKey = "sitePhotos" | "dashboard" | "schedule";
+type ProjectInfoTabKey = "sitePhotos" | "dashboard";
 
 type ModelsResponse = {
   models: IfcModelSummary[];
@@ -3943,8 +3943,7 @@ function ProjectInfoPage({
     label: string;
   }> = [
     { key: "sitePhotos", label: "현장사진" },
-    { key: "dashboard", label: "대시보드" },
-    { key: "schedule", label: "일정관리" }
+    { key: "dashboard", label: "대시보드" }
   ];
 
   return (
@@ -3995,9 +3994,6 @@ function ProjectInfoPage({
             />
           ) : null}
 
-          {activeInfoTab === "schedule" ? (
-            <ProjectScheduleTab project={project} />
-          ) : null}
         </div>
       </section>
     </>
@@ -4916,10 +4912,6 @@ function resizeDailyReportPhoto(file: File) {
     };
     reader.readAsDataURL(file);
   });
-}
-
-function ProjectScheduleTab({ project }: { project: WorkspaceProject }) {
-  return <ProjectScheduleSection project={project} />;
 }
 
 function ProjectSubcontractorsPage({ project }: { project: WorkspaceProject }) {
