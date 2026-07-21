@@ -1815,6 +1815,44 @@ function getProjectSchedules(projectId: string) {
     .sort((left, right) => left.startDate.localeCompare(right.startDate));
 }
 
+function calculateScheduleProgress(
+  startDate: string,
+  endDate: string,
+  asOfDate = getTodayInputValue()
+) {
+  if (asOfDate < startDate) {
+    return 0;
+  }
+
+  if (asOfDate >= endDate) {
+    return 100;
+  }
+
+  const startTime = new Date(`${startDate}T00:00:00`).getTime();
+  const endTime = new Date(`${endDate}T00:00:00`).getTime();
+  const asOfTime = new Date(`${asOfDate}T00:00:00`).getTime();
+  const totalDays = Math.max(1, (endTime - startTime) / 86_400_000);
+  const elapsedDays = Math.max(0, (asOfTime - startTime) / 86_400_000);
+
+  return Math.round((elapsedDays / totalDays) * 100);
+}
+
+function getProjectScheduleProgress(items: ProjectScheduleItem[], asOfDate: string) {
+  const progressItems = items.filter((item) => !isScheduleSummaryItem(item));
+
+  if (progressItems.length === 0) {
+    return 0;
+  }
+
+  const totalProgress = progressItems.reduce(
+    (total, item) =>
+      total + calculateScheduleProgress(item.startDate, item.endDate, asOfDate),
+    0
+  );
+
+  return Math.round(totalProgress / progressItems.length);
+}
+
 function formatInputDate(date: Date) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
     .toISOString()
@@ -4309,9 +4347,19 @@ function ProjectDashboardTab({
   project: WorkspaceProject;
 }) {
   const [reports, setReports] = useState<ConstructionDailyReport[]>([]);
+  const [schedules, setSchedules] = useState<ProjectScheduleItem[]>([]);
   const today = getTodayInputValue();
   const todayReport = reports.find((report) => report.reportDate === today) ?? null;
   const latestReport = reports[0] ?? null;
+  const scheduleProgress = getProjectScheduleProgress(schedules, today);
+  const scheduleProgressStatus =
+    schedules.filter((item) => !isScheduleSummaryItem(item)).length === 0
+      ? "등록 공정 없음"
+      : scheduleProgress >= 100
+      ? "완료"
+      : scheduleProgress > 0
+      ? "진행중"
+      : "대기";
   const totalLaborCount = latestReport
     ? getReportCumulativeLaborCount(latestReport)
     : 0;
@@ -4343,6 +4391,7 @@ function ProjectDashboardTab({
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setReports(getProjectDailyReports(project.id));
+      setSchedules(getProjectSchedules(project.id));
     });
 
     return () => {
@@ -4359,10 +4408,15 @@ function ProjectDashboardTab({
 
         <DashboardPanel title="공정률" className="min-h-[132px]" hasMenu>
           <div className="mt-3">
-            <p className="text-xs text-[#6f6f6f]">진행중</p>
-            <p className="mt-2 text-base font-semibold text-[#171717]">0%</p>
+            <p className="text-xs text-[#6f6f6f]">{scheduleProgressStatus}</p>
+            <p className="mt-2 text-base font-semibold text-[#171717]">
+              {scheduleProgress}%
+            </p>
             <div className="mx-auto mt-3 h-6 w-[72%] overflow-hidden bg-[#b8b8b8]">
-              <div className="h-full w-0 bg-[#171717]" />
+              <div
+                className="h-full bg-[#171717]"
+                style={{ width: `${scheduleProgress}%` }}
+              />
             </div>
           </div>
         </DashboardPanel>
@@ -7545,26 +7599,6 @@ function ProjectScheduleSection({ project }: { project: WorkspaceProject }) {
 
     storeProjectSchedules([...otherItems, ...sorted]);
     setItems(sorted);
-  }
-
-  function calculateScheduleProgress(startDate: string, endDate: string) {
-    const today = getTodayInputValue();
-
-    if (today < startDate) {
-      return 0;
-    }
-
-    if (today >= endDate) {
-      return 100;
-    }
-
-    const startTime = new Date(`${startDate}T00:00:00`).getTime();
-    const endTime = new Date(`${endDate}T00:00:00`).getTime();
-    const todayTime = new Date(`${today}T00:00:00`).getTime();
-    const totalDays = Math.max(1, (endTime - startTime) / 86_400_000);
-    const elapsedDays = Math.max(0, (todayTime - startTime) / 86_400_000);
-
-    return Math.round((elapsedDays / totalDays) * 100);
   }
 
   async function importScheduleFile(event: ChangeEvent<HTMLInputElement>) {
