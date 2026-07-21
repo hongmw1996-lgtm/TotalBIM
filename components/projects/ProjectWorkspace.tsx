@@ -4384,7 +4384,6 @@ function ProjectDashboardTab({
   const [reports, setReports] = useState<ConstructionDailyReport[]>([]);
   const [schedules, setSchedules] = useState<ProjectScheduleItem[]>([]);
   const today = getTodayInputValue();
-  const todayReport = reports.find((report) => report.reportDate === today) ?? null;
   const latestReport = reports[0] ?? null;
   const scheduleProgress = getProjectScheduleProgress(schedules, today);
   const scheduleProgressStatus =
@@ -4395,8 +4394,11 @@ function ProjectDashboardTab({
       : scheduleProgress > 0
       ? "진행중"
       : "대기";
-  const totalLaborCount = latestReport
-    ? getReportCumulativeLaborCount(latestReport)
+  const totalEmployeeCount = latestReport
+    ? getReportContractorCumulativeLaborCount(latestReport)
+    : 0;
+  const totalWorkerCount = latestReport
+    ? getReportSubcontractorCumulativeLaborCount(latestReport)
     : 0;
   const tradeLaborRows = latestReport
     ? getSubcontractorTradeLaborRows(latestReport)
@@ -4419,9 +4421,6 @@ function ProjectDashboardTab({
     ? getActiveQuantityRows(latestReport.equipmentRows)
     : [];
   const noteItems = latestReport ? getDashboardNoteItems(latestReport) : [];
-  const weatherText = todayReport?.weather.trim() || "데이터 없음";
-  const lowTemp = todayReport?.lowTemp.trim() || "0";
-  const highTemp = todayReport?.highTemp.trim() || "0";
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -4456,29 +4455,21 @@ function ProjectDashboardTab({
           </div>
         </DashboardPanel>
 
-        <DashboardPanel title="누적 작업자수" className="min-h-[132px]">
+        <DashboardPanel title="누적 직원수" className="min-h-[132px]">
           <div className="mt-3">
-            <p className="text-xs text-[#6f6f6f]">출역일보 기준</p>
+            <p className="text-xs text-[#6f6f6f]">공사일보 시공사 누계</p>
             <p className="mt-2 text-base font-semibold text-[#171717]">
-              {totalLaborCount}명
+              {totalEmployeeCount}명
             </p>
           </div>
         </DashboardPanel>
 
-        <DashboardPanel title="오늘의 날씨" className="min-h-[132px]">
-          <div className="flex min-h-[86px] items-center justify-between gap-3">
-            <div>
-              <p className="text-xs text-[#6f6f6f]">
-                {formatDashboardDate(today)}
-              </p>
-              <p className="mt-3 text-base font-semibold text-[#171717]">
-                {weatherText}
-              </p>
-              <p className="mt-6 text-xs text-[#4d4d4d]">
-                최고: {highTemp}도 최저: {lowTemp}도
-              </p>
-            </div>
-            <CloudSun size={40} className="text-[#b8d2f2]" aria-hidden />
+        <DashboardPanel title="누적 작업자수" className="min-h-[132px]">
+          <div className="mt-3">
+            <p className="text-xs text-[#6f6f6f]">공사일보 협력사 누계</p>
+            <p className="mt-2 text-base font-semibold text-[#171717]">
+              {totalWorkerCount}명
+            </p>
           </div>
         </DashboardPanel>
       </div>
@@ -4676,11 +4667,20 @@ function getLaborRowCount(row: DailyReportLaborRow) {
   return getDailyReportCumulativeNumber(row);
 }
 
-function getReportCumulativeLaborCount(report: ConstructionDailyReport) {
-  return [
-    ...report.contractorLaborRows,
-    ...report.subcontractorLaborRows
-  ].reduce((sum, row) => sum + getLaborRowCount(row), 0);
+function getLaborRowsCumulativeCount(rows: DailyReportLaborRow[]) {
+  return rows.reduce((sum, row) => sum + getLaborRowCount(row), 0);
+}
+
+function getReportContractorCumulativeLaborCount(
+  report: ConstructionDailyReport
+) {
+  return getLaborRowsCumulativeCount(report.contractorLaborRows);
+}
+
+function getReportSubcontractorCumulativeLaborCount(
+  report: ConstructionDailyReport
+) {
+  return getLaborRowsCumulativeCount(report.subcontractorLaborRows);
 }
 
 function getSubcontractorTradeLaborRows(report: ConstructionDailyReport) {
@@ -4865,12 +4865,6 @@ function resizeDailyReportPhoto(file: File) {
     };
     reader.readAsDataURL(file);
   });
-}
-
-function formatDashboardDate(value: string) {
-  const [year, month, day] = value.split("-");
-
-  return `${year.slice(2)}년 ${month}월 ${day}일`;
 }
 
 function ProjectScheduleTab({ project }: { project: WorkspaceProject }) {
