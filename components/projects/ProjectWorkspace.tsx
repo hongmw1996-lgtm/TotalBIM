@@ -6982,7 +6982,16 @@ function InspectionRequestDocumentPreview({
         </div>
 
         <div className="mt-5 overflow-x-auto">
-          <table className="min-w-[860px] w-full border-collapse text-sm">
+          <table className="w-full min-w-[860px] table-fixed border-collapse text-sm">
+            <colgroup>
+              <col className="w-[47%]" />
+              <col className="w-[18%]" />
+              <col className="w-[5%]" />
+              <col className="w-[5%]" />
+              <col className="w-[5%]" />
+              <col className="w-[5%]" />
+              <col className="w-[15%]" />
+            </colgroup>
             <thead>
               <tr className="bg-[#fcfcfc]">
                 <th rowSpan={2} className="border border-[#171717] px-3 py-2">
@@ -7015,12 +7024,13 @@ function InspectionRequestDocumentPreview({
                     {isEditing ? (
                       <textarea
                         value={row.item}
+                        rows={3}
                         onChange={(event) =>
                           updateChecklistRow(rowIndex, {
                             item: event.target.value
                           })
                         }
-                        className="min-h-16 w-full resize-y rounded-[4px] border border-[#d7d7d7] px-2 py-2 text-sm outline-none transition focus:border-[#171717]"
+                        className="block min-h-14 w-full resize-none overflow-hidden rounded-[4px] border border-transparent bg-transparent px-1 py-1 text-sm font-medium leading-6 outline-none transition focus:border-[#171717] focus:bg-white"
                       />
                     ) : (
                       row.item || "-"
@@ -7030,12 +7040,13 @@ function InspectionRequestDocumentPreview({
                     {isEditing ? (
                       <textarea
                         value={row.standard}
+                        rows={3}
                         onChange={(event) =>
                           updateChecklistRow(rowIndex, {
                             standard: event.target.value
                           })
                         }
-                        className="min-h-16 w-full resize-y rounded-[4px] border border-[#d7d7d7] px-2 py-2 text-sm outline-none transition focus:border-[#171717]"
+                        className="block min-h-14 w-full resize-none overflow-hidden rounded-[4px] border border-transparent bg-transparent px-1 py-1 text-sm leading-6 outline-none transition focus:border-[#171717] focus:bg-white"
                       />
                     ) : (
                       row.standard || "-"
@@ -7062,7 +7073,7 @@ function InspectionRequestDocumentPreview({
                               [key]: event.target.value
                             } as Partial<InspectionRequestChecklistRow>)
                           }
-                          className="h-8 w-full rounded-[4px] border border-[#d7d7d7] px-2 text-center text-sm outline-none transition focus:border-[#171717]"
+                          className="h-8 w-full rounded-[4px] border border-transparent bg-transparent px-1 text-center text-sm outline-none transition focus:border-[#171717] focus:bg-white"
                         />
                       ) : (
                         String(row[key] || "-")
@@ -7071,7 +7082,7 @@ function InspectionRequestDocumentPreview({
                   ))}
                   <td className="border border-[#d7d7d7] px-3 py-2 text-center text-[#4d4d4d]">
                     {isEditing ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex min-w-0 items-center gap-1">
                         <input
                           type="text"
                           value={row.action ?? ""}
@@ -7080,7 +7091,7 @@ function InspectionRequestDocumentPreview({
                               action: event.target.value
                             })
                           }
-                          className="h-8 min-w-28 flex-1 rounded-[4px] border border-[#d7d7d7] px-2 text-sm outline-none transition focus:border-[#171717]"
+                          className="h-8 min-w-0 flex-1 rounded-[4px] border border-transparent bg-transparent px-1 text-sm outline-none transition focus:border-[#171717] focus:bg-white"
                         />
                         <button
                           type="button"
