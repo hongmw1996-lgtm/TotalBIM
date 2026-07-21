@@ -5678,6 +5678,7 @@ type ProjectDocumentListItem = {
   date: string;
   documentType?: ProjectDocumentTabKey;
   id: string;
+  inspectionRequest?: InspectionRequestDocumentData;
   owner: string;
   projectId?: string;
   report?: ConstructionDailyReport;
@@ -5689,6 +5690,76 @@ type StoredProjectDocument = Omit<ProjectDocumentListItem, "report"> & {
   documentType: Exclude<ProjectDocumentTabKey, "daily-report">;
   projectId: string;
 };
+
+type InspectionRequestChecklistRow = {
+  item: string;
+  standard: string;
+};
+
+type InspectionRequestDocumentData = {
+  attachmentText: string;
+  checklist: {
+    drawingNumber: string;
+    rows: InspectionRequestChecklistRow[];
+    subTrade: string;
+    trade: string;
+  };
+  constructionName: string;
+  inspectionPart: string;
+  inspectionRequestDate: string;
+  inspectionSummary: string;
+  locationAndTrade: string;
+  requestNo: string;
+  requestPeriod: string;
+  recipient: string;
+  resultAttachmentText: string;
+  resultRecipient: string;
+  siteManager: string;
+  supervisingInspector: string;
+};
+
+const steelBeamInspectionChecklistRows: InspectionRequestChecklistRow[] = [
+  {
+    item: "1. 설치 위치 및 부재 규격 확인하였는가?",
+    standard: "설계도서 / 육안검사"
+  },
+  {
+    item: "2. 보의 수직도 및 수평도는 정확한가?",
+    standard: "육안검사 (1/1000)"
+  },
+  {
+    item: "3. 철골 부재의 휨여부 양호한가?",
+    standard: "육안검사 (1/1000)"
+  },
+  {
+    item: "4. 고장력 볼트 조임시 와셔를 끼우고 시공했는가?",
+    standard: "육안검사"
+  },
+  {
+    item: "5. 볼트 체결력이 유용하게 작용하도록 중앙에서 가장자리 방향으로 조였는가?",
+    standard: "육안검사"
+  },
+  {
+    item: "6. 용접부위 및 주변 청결 상태는 확인하였는가?",
+    standard: "육안검사"
+  },
+  {
+    item: "7. 현장 용접부의 각장, 길이, 치수의 용접 상태는 적정한가?",
+    standard: "설계도서 / 육안검사"
+  },
+  {
+    item: "8. 용접부 이음의 개선은 도면에 승인된 형상으로 하고 있는가?",
+    standard: "설계도서 / 육안검사"
+  },
+  {
+    item: "9. 모살용접되는 상호부재는 충분히 밀착하였는가?",
+    standard: "육안검사 (2mm 이내)"
+  },
+  {
+    item: "10. 비파괴 검사 실시여부",
+    standard: "업체명 / 측정원 확인"
+  }
+];
 
 function createDailyReportDocument(report: ConstructionDailyReport) {
   return {
@@ -5745,6 +5816,52 @@ function storeProjectDocuments(documents: StoredProjectDocument[]) {
   window.localStorage.setItem(
     PROJECT_DOCUMENTS_STORAGE_KEY,
     JSON.stringify(documents)
+  );
+}
+
+function createInspectionRequestDocumentData(
+  project: WorkspaceProject,
+  requestDate: string,
+  requestNo: string
+): InspectionRequestDocumentData {
+  const ownerName =
+    project.owner?.name ||
+    getProjectOwner(project, {
+      username: "admin",
+      name: "관리자",
+      role: "admin"
+    }).name;
+
+  return {
+    attachmentText: "검측체크리스트, 사진대지, 도면, 공사참여자 실명부",
+    checklist: {
+      drawingNumber: "철골 시공상세도",
+      rows: steelBeamInspectionChecklistRows,
+      subTrade: "수직도 및 수평도, 비파괴 검사",
+      trade: "철골공사"
+    },
+    constructionName: project.name,
+    inspectionPart: "지하1층 A-Zone 철골 보",
+    inspectionRequestDate: requestDate,
+    inspectionSummary: "철골 보 조립, 용접, 비파괴검사",
+    locationAndTrade: project.name,
+    recipient: project.inspector || "감리단",
+    requestNo,
+    requestPeriod: requestDate,
+    resultAttachmentText: "감리원의 체크리스트 검측결과",
+    resultRecipient: `${project.contractor || "시공사"} 현장대리인`,
+    siteManager: ownerName,
+    supervisingInspector: ""
+  };
+}
+
+function getInspectionRequestData(
+  document: ProjectDocumentListItem,
+  project: WorkspaceProject
+) {
+  return (
+    document.inspectionRequest ??
+    createInspectionRequestDocumentData(project, document.date, document.title)
   );
 }
 
@@ -5842,12 +5959,20 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     }
 
     const today = getTodayInputValue();
+    const title =
+      documentType === "inspection-request"
+        ? `${formatKoreanDate(today)} 철골보 검측요청서`
+        : `${formatKoreanDate(today)} ${documentMeta.label}`;
     const nextDocument: StoredProjectDocument = {
       id: crypto.randomUUID(),
       projectId: project.id,
       documentType,
-      title: `${formatKoreanDate(today)} ${documentMeta.label}`,
+      title,
       date: today,
+      inspectionRequest:
+        documentType === "inspection-request"
+          ? createInspectionRequestDocumentData(project, today, title)
+          : undefined,
       owner: "관리자",
       status: "작성됨"
     };
@@ -6384,6 +6509,10 @@ function DocumentPreviewDialog({
               subcontractorOptions={subcontractorOptions}
               onChange={setDraftReport}
             />
+          ) : document.documentType === "inspection-request" ? (
+            <InspectionRequestDocumentPreview
+              data={getInspectionRequestData(document, project)}
+            />
           ) : (
             <div className="flex min-h-[420px] items-center justify-center rounded-[8px] border border-dashed border-[#ebebeb] bg-white text-center">
               <div>
@@ -6400,6 +6529,167 @@ function DocumentPreviewDialog({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function InspectionRequestDocumentPreview({
+  data
+}: {
+  data: InspectionRequestDocumentData;
+}) {
+  const coverRows = [
+    ["번호", data.requestNo],
+    ["수신", data.recipient],
+    ["위치 및 공종", data.locationAndTrade],
+    ["검측 부위", data.inspectionPart],
+    ["검측 요구 일시", data.inspectionRequestDate],
+    ["검측 사항", data.inspectionSummary]
+  ];
+
+  return (
+    <div className="mx-auto grid max-w-4xl gap-5">
+      <section className="rounded-[8px] border border-[#d7d7d7] bg-white p-6 shadow-sm">
+        <h3 className="text-center text-2xl font-semibold tracking-[0.16em]">
+          검 측 요 청 서
+        </h3>
+        <div className="mt-6 grid gap-0 overflow-hidden border border-[#171717] text-sm">
+          {coverRows.map(([label, value]) => (
+            <div key={label} className="grid grid-cols-[150px_minmax(0,1fr)]">
+              <div className="border-b border-r border-[#d7d7d7] bg-[#fcfcfc] px-4 py-3 font-semibold text-[#171717]">
+                {label}
+              </div>
+              <div className="border-b border-[#d7d7d7] px-4 py-3 text-[#171717]">
+                {value || "-"}
+              </div>
+            </div>
+          ))}
+          <div className="grid grid-cols-[150px_minmax(0,1fr)]">
+            <div className="border-r border-[#d7d7d7] bg-[#fcfcfc] px-4 py-3 font-semibold text-[#171717]">
+              첨부
+            </div>
+            <div className="px-4 py-3 text-[#171717]">
+              {data.attachmentText}
+            </div>
+          </div>
+        </div>
+
+        <p className="mt-5 text-sm leading-6 text-[#4d4d4d]">
+          다음과 같은 세부공종에 대하여 검측요청하오니 검사 후 승인하여
+          주시기 바랍니다.
+        </p>
+
+        <div className="mt-6 grid gap-2 text-sm text-[#171717]">
+          <p>공사명 : {data.constructionName}</p>
+          <p>현장대리인 : {data.siteManager} (인)</p>
+        </div>
+
+        <div className="mt-8 border-t border-[#171717] pt-5">
+          <h4 className="text-center text-lg font-semibold tracking-[0.12em]">
+            검 측 결 과 통 보 서
+          </h4>
+          <div className="mt-4 grid gap-2 text-sm text-[#171717]">
+            <p>검측요청서 번호 {data.requestNo}에 대한 검측결과를 통보합니다.</p>
+            <p>수신 : {data.resultRecipient}</p>
+            <p>검측일자 : {data.inspectionRequestDate}</p>
+            <p>첨부 : {data.resultAttachmentText}</p>
+            <p>총괄 감리 책임자 : {data.supervisingInspector || "(인)"}</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-[8px] border border-[#d7d7d7] bg-white p-6 shadow-sm">
+        <h3 className="text-center text-2xl font-semibold tracking-[0.12em]">
+          검 측 체 크 리 스 트
+        </h3>
+
+        <div className="mt-6 grid grid-cols-2 overflow-hidden border border-[#171717] text-sm max-md:grid-cols-1">
+          {[
+            ["공종 CODE No.", data.requestNo],
+            ["검측일자", data.requestPeriod],
+            ["공종", data.checklist.trade],
+            ["위치 및 부위", data.inspectionPart],
+            ["세부공종", data.checklist.subTrade],
+            ["도면번호", data.checklist.drawingNumber]
+          ].map(([label, value]) => (
+            <div
+              key={label}
+              className="grid grid-cols-[120px_minmax(0,1fr)] border-b border-[#d7d7d7]"
+            >
+              <div className="border-r border-[#d7d7d7] bg-[#fcfcfc] px-3 py-2 font-semibold">
+                {label}
+              </div>
+              <div className="px-3 py-2">{value || "-"}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-5 overflow-x-auto">
+          <table className="min-w-[860px] w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-[#fcfcfc]">
+                <th rowSpan={2} className="border border-[#171717] px-3 py-2">
+                  검사항목
+                </th>
+                <th rowSpan={2} className="border border-[#171717] px-3 py-2">
+                  검사기준
+                </th>
+                <th colSpan={2} className="border border-[#171717] px-3 py-2">
+                  시공자
+                </th>
+                <th colSpan={2} className="border border-[#171717] px-3 py-2">
+                  감리자
+                </th>
+                <th rowSpan={2} className="border border-[#171717] px-3 py-2">
+                  조치사항
+                </th>
+              </tr>
+              <tr className="bg-[#fcfcfc]">
+                <th className="border border-[#171717] px-3 py-2">1차</th>
+                <th className="border border-[#171717] px-3 py-2">2차</th>
+                <th className="border border-[#171717] px-3 py-2">1차</th>
+                <th className="border border-[#171717] px-3 py-2">2차</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.checklist.rows.map((row) => (
+                <tr key={row.item}>
+                  <td className="border border-[#d7d7d7] px-3 py-2 font-medium">
+                    {row.item}
+                  </td>
+                  <td className="border border-[#d7d7d7] px-3 py-2 whitespace-pre-line">
+                    {row.standard}
+                  </td>
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <td
+                      key={`${row.item}-${index}`}
+                      className="border border-[#d7d7d7] px-3 py-2 text-center text-[#8f8f8f]"
+                    >
+                      -
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-3 text-sm max-md:grid-cols-1">
+          <div className="rounded-[6px] border border-[#d7d7d7] px-4 py-3">
+            시공자 점검 : 성명 (인)
+          </div>
+          <div className="rounded-[6px] border border-[#d7d7d7] px-4 py-3">
+            감리원 검측 : 성명 (인)
+          </div>
+          <div className="rounded-[6px] border border-[#d7d7d7] px-4 py-3">
+            시공자 재점검 : 성명 (인)
+          </div>
+          <div className="rounded-[6px] border border-[#d7d7d7] px-4 py-3">
+            감리원 재검측 : 성명 (인)
+          </div>
+        </div>
+        <p className="mt-4 text-xs text-[#6f6f6f]">※ 검측사진첨부.</p>
+      </section>
     </div>
   );
 }
