@@ -5646,10 +5646,11 @@ function ProjectInfoTable({
 type ProjectDocumentTabKey =
   | "daily-report"
   | "inspection-request"
-  | "quality-report"
+  | "concrete-pour-plan"
+  | "material-inspection-request"
+  | "crack-management-ledger"
   | "safety-log"
-  | "meeting-minutes"
-  | "material-approval";
+  | "shop-drawing-approval-request";
 
 const projectDocumentTabs: Array<{
   key: ProjectDocumentTabKey;
@@ -5658,10 +5659,19 @@ const projectDocumentTabs: Array<{
 }> = [
   { key: "daily-report", label: "공사일보", code: "DR" },
   { key: "inspection-request", label: "검측요청서", code: "IR" },
-  { key: "quality-report", label: "품질검사서", code: "QC" },
+  { key: "concrete-pour-plan", label: "타설계획서", code: "CP" },
+  {
+    key: "material-inspection-request",
+    label: "자재검수요청서",
+    code: "MI"
+  },
+  { key: "crack-management-ledger", label: "균열관리대장", code: "CR" },
   { key: "safety-log", label: "안전관리일지", code: "SF" },
-  { key: "meeting-minutes", label: "회의록", code: "MM" },
-  { key: "material-approval", label: "자재승인서", code: "MA" }
+  {
+    key: "shop-drawing-approval-request",
+    label: "시공상세도승인요청서",
+    code: "SD"
+  }
 ];
 
 type ProjectDocumentListItem = {
