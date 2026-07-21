@@ -8003,10 +8003,28 @@ function ProjectScheduleSection({ project }: { project: WorkspaceProject }) {
   }
 
   function removeItem(itemId: string) {
+    const item = items.find((scheduleItem) => scheduleItem.id === itemId);
+
+    if (!item || !window.confirm(`${item.title} 공종을 삭제하시겠습니까?`)) {
+      return;
+    }
+
     persist(items.filter((item) => item.id !== itemId));
     if (draft.id === itemId) {
       resetDraft();
     }
+  }
+
+  function resetScheduleItems() {
+    if (
+      items.length === 0 ||
+      !window.confirm("등록된 공종을 전체 초기화하시겠습니까?")
+    ) {
+      return;
+    }
+
+    persist([]);
+    resetDraft();
   }
 
   const monthStart = new Date(`${calendarMonth}-01T00:00:00`);
@@ -8561,14 +8579,25 @@ function ProjectScheduleSection({ project }: { project: WorkspaceProject }) {
                   개
                 </p>
               </div>
-              <button
-                type="button"
-                className="grid h-9 w-9 place-items-center rounded-[6px] border border-[#ebebeb] text-[#4d4d4d] transition hover:border-[#171717] hover:text-[#171717]"
-                aria-label="공종 리스트 닫기"
-                onClick={() => setIsScheduleListOpen(false)}
-              >
-                <X size={17} aria-hidden />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-[6px] border border-[#ebebeb] px-3 text-sm font-medium text-[#d92d20] transition hover:border-[#d92d20] hover:bg-[#fff4f2]"
+                  onClick={resetScheduleItems}
+                  disabled={items.length === 0}
+                >
+                  <RotateCcw size={15} aria-hidden />
+                  전체 초기화
+                </button>
+                <button
+                  type="button"
+                  className="grid h-9 w-9 place-items-center rounded-[6px] border border-[#ebebeb] text-[#4d4d4d] transition hover:border-[#171717] hover:text-[#171717]"
+                  aria-label="공종 리스트 닫기"
+                  onClick={() => setIsScheduleListOpen(false)}
+                >
+                  <X size={17} aria-hidden />
+                </button>
+              </div>
             </div>
 
             <div className="overflow-y-auto p-5">
@@ -8591,7 +8620,7 @@ function ProjectScheduleSection({ project }: { project: WorkspaceProject }) {
                           {group.items.length}개
                         </span>
                       </div>
-                      <div className="grid grid-cols-[140px_minmax(220px,1fr)_120px_120px] border-t border-[#ebebeb] bg-white text-xs">
+                      <div className="grid grid-cols-[140px_minmax(220px,1fr)_120px_120px_72px] border-t border-[#ebebeb] bg-white text-xs">
                         <div className="border-r border-[#ebebeb] px-4 py-2 font-semibold text-[#4d4d4d]">
                           대공종
                         </div>
@@ -8601,8 +8630,11 @@ function ProjectScheduleSection({ project }: { project: WorkspaceProject }) {
                         <div className="border-r border-[#ebebeb] px-4 py-2 font-semibold text-[#4d4d4d]">
                           시작일
                         </div>
-                        <div className="px-4 py-2 font-semibold text-[#4d4d4d]">
+                        <div className="border-r border-[#ebebeb] px-4 py-2 font-semibold text-[#4d4d4d]">
                           종료일
+                        </div>
+                        <div className="px-3 py-2 text-center font-semibold text-[#4d4d4d]">
+                          삭제
                         </div>
                         {group.items.map((item, itemIndex) => (
                           <Fragment key={item.id}>
@@ -8615,8 +8647,19 @@ function ProjectScheduleSection({ project }: { project: WorkspaceProject }) {
                             <div className="border-r border-t border-[#f2f2f2] px-4 py-2 text-[#6f6f6f]">
                               {item.startDate}
                             </div>
-                            <div className="border-t border-[#f2f2f2] px-4 py-2 text-[#6f6f6f]">
+                            <div className="border-r border-t border-[#f2f2f2] px-4 py-2 text-[#6f6f6f]">
                               {item.endDate}
+                            </div>
+                            <div className="flex items-center justify-center border-t border-[#f2f2f2] px-3 py-1.5">
+                              <button
+                                type="button"
+                                className="grid size-8 place-items-center rounded-[6px] text-[#8f8f8f] transition hover:bg-[#fff4f2] hover:text-[#d92d20]"
+                                aria-label={`${item.title} 공종 삭제`}
+                                title="삭제"
+                                onClick={() => removeItem(item.id)}
+                              >
+                                <Trash2 size={15} aria-hidden />
+                              </button>
                             </div>
                           </Fragment>
                         ))}
