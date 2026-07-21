@@ -1837,19 +1837,55 @@ function calculateScheduleProgress(
   return Math.round((elapsedDays / totalDays) * 100);
 }
 
-function getProjectScheduleProgress(items: ProjectScheduleItem[]) {
+function getInputDateTime(value: string) {
+  const time = new Date(`${value}T00:00:00`).getTime();
+
+  return Number.isFinite(time) ? time : null;
+}
+
+function getProjectScheduleProgress(items: ProjectScheduleItem[], asOfDate: string) {
+  const asOfTime = getInputDateTime(asOfDate);
   const progressItems = items.filter((item) => !isScheduleSummaryItem(item));
 
-  if (progressItems.length === 0) {
+  if (!asOfTime || progressItems.length === 0) {
     return 0;
   }
 
-  const totalProgress = progressItems.reduce(
-    (total, item) => total + Math.max(0, Math.min(100, item.progress)),
-    0
+  const totals = progressItems.reduce(
+    (total, item) => {
+      const startTime = getInputDateTime(item.startDate);
+      const rawEndTime = getInputDateTime(item.endDate);
+
+      if (!startTime || !rawEndTime) {
+        return total;
+      }
+
+      const endTime = Math.max(startTime, rawEndTime);
+      const plannedDays =
+        Math.max(0, Math.round((endTime - startTime) / 86_400_000)) + 1;
+      const completedDays =
+        asOfTime < startTime
+          ? 0
+          : asOfTime >= endTime
+          ? plannedDays
+          : Math.min(
+              plannedDays,
+              Math.max(0, Math.round((asOfTime - startTime) / 86_400_000)) + 1
+            );
+
+      return {
+        completedDays: total.completedDays + completedDays,
+        plannedDays: total.plannedDays + plannedDays
+      };
+    },
+    { completedDays: 0, plannedDays: 0 }
   );
 
-  return Math.round(totalProgress / progressItems.length);
+  if (totals.plannedDays === 0) {
+    return 0;
+  }
+
+  return Math.round((totals.completedDays / totals.plannedDays) * 100);
 }
 
 function formatInputDate(date: Date) {
@@ -4350,7 +4386,7 @@ function ProjectDashboardTab({
   const today = getTodayInputValue();
   const todayReport = reports.find((report) => report.reportDate === today) ?? null;
   const latestReport = reports[0] ?? null;
-  const scheduleProgress = getProjectScheduleProgress(schedules);
+  const scheduleProgress = getProjectScheduleProgress(schedules, today);
   const scheduleProgressStatus =
     schedules.filter((item) => !isScheduleSummaryItem(item)).length === 0
       ? "등록 공정 없음"
