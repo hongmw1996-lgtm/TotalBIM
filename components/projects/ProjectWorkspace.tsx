@@ -109,6 +109,8 @@ type WorkspaceProject = {
   name: string;
   description: string;
   coverImage?: string | null;
+  coverImageDisplayHeight?: number | null;
+  coverImageDisplayWidth?: number | null;
   client?: string;
   contractor?: string;
   constructionPeriod?: string;
@@ -130,6 +132,8 @@ type WorkspaceProjectEditableFields = Pick<
   | "name"
   | "description"
   | "coverImage"
+  | "coverImageDisplayHeight"
+  | "coverImageDisplayWidth"
   | "client"
   | "contractor"
   | "constructionPeriod"
@@ -551,6 +555,8 @@ function hasEditableProjectChanges(
     "name",
     "description",
     "coverImage",
+    "coverImageDisplayHeight",
+    "coverImageDisplayWidth",
     "client",
     "contractor",
     "constructionPeriod",
@@ -2491,6 +2497,8 @@ export function ProjectWorkspace({
         | "name"
         | "description"
         | "coverImage"
+        | "coverImageDisplayHeight"
+        | "coverImageDisplayWidth"
         | "client"
         | "contractor"
         | "constructionPeriod"
@@ -2526,6 +2534,14 @@ export function ProjectWorkspace({
               patch.coverImage === undefined
                 ? project.coverImage
                 : patch.coverImage,
+            coverImageDisplayHeight:
+              patch.coverImageDisplayHeight === undefined
+                ? project.coverImageDisplayHeight
+                : patch.coverImageDisplayHeight,
+            coverImageDisplayWidth:
+              patch.coverImageDisplayWidth === undefined
+                ? project.coverImageDisplayWidth
+                : patch.coverImageDisplayWidth,
             client:
               patch.client === undefined ? project.client : patch.client.trim(),
             contractor:
@@ -3272,6 +3288,8 @@ function ProjectManagement({
         | "name"
         | "description"
         | "coverImage"
+        | "coverImageDisplayHeight"
+        | "coverImageDisplayWidth"
         | "client"
         | "contractor"
         | "constructionPeriod"
@@ -3529,6 +3547,8 @@ function ProjectDetailWorkspace({
         | "name"
         | "description"
         | "coverImage"
+        | "coverImageDisplayHeight"
+        | "coverImageDisplayWidth"
         | "client"
         | "contractor"
         | "constructionPeriod"
@@ -4050,7 +4070,9 @@ function ProjectSitePhotosTab({
       }
 
       onUpdateProject(project.id, {
-        coverImage: payload.photo.url
+        coverImage: payload.photo.url,
+        coverImageDisplayHeight: photoUploadDraft.targetHeight,
+        coverImageDisplayWidth: photoUploadDraft.targetWidth
       });
       closePhotoUploadEditor();
     } catch (error) {
@@ -4067,13 +4089,21 @@ function ProjectSitePhotosTab({
       <div>
         <div className="flex min-h-[360px] items-center justify-center rounded-[8px] border border-dashed border-[#ebebeb] bg-[#fcfcfc]">
           {project.coverImage ? (
-            <div className="w-full overflow-hidden rounded-[8px] border border-[#ebebeb] bg-white">
-              {/* User-uploaded data URLs are previewed directly instead of using Next image optimization. */}
+            <div className="flex min-h-[360px] w-full items-center justify-center overflow-hidden rounded-[8px] border border-[#ebebeb] bg-white p-4">
+              {/* Project photos may come from app API URLs or existing data URLs. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={project.coverImage}
                 alt=""
-                className="h-[360px] w-full object-cover"
+                className="max-h-[328px] max-w-full object-contain"
+                style={{
+                  height: project.coverImageDisplayHeight
+                    ? `${project.coverImageDisplayHeight}px`
+                    : "auto",
+                  width: project.coverImageDisplayWidth
+                    ? `${project.coverImageDisplayWidth}px`
+                    : "100%"
+                }}
               />
             </div>
           ) : (
