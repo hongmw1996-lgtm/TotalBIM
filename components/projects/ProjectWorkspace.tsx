@@ -305,6 +305,7 @@ const PROJECTS_STORAGE_KEY = "bim_workspace_projects";
 const DEFAULT_PROJECT_DELETED_KEY = "bim_default_project_deleted";
 const TEAMS_STORAGE_KEY = "bim_workspace_teams";
 const DAILY_REPORTS_STORAGE_KEY = "bim_project_daily_reports";
+const PROJECT_DOCUMENTS_STORAGE_KEY = "bim_project_documents";
 const PROJECT_SCHEDULES_STORAGE_KEY = "bim_project_schedules";
 const PROJECT_SUBCONTRACTORS_STORAGE_KEY = "bim_project_subcontractors";
 
@@ -5665,16 +5666,25 @@ const projectDocumentTabs: Array<{
 
 type ProjectDocumentListItem = {
   date: string;
+  documentType?: ProjectDocumentTabKey;
   id: string;
   owner: string;
+  projectId?: string;
   report?: ConstructionDailyReport;
   status: string;
   title: string;
 };
 
+type StoredProjectDocument = Omit<ProjectDocumentListItem, "report"> & {
+  documentType: Exclude<ProjectDocumentTabKey, "daily-report">;
+  projectId: string;
+};
+
 function createDailyReportDocument(report: ConstructionDailyReport) {
   return {
     id: report.id,
+    documentType: "daily-report",
+    projectId: report.projectId,
     title: `${formatKoreanDate(report.reportDate)} 공사일보`,
     date: report.reportDate,
     status: "작성됨",
@@ -5683,13 +5693,60 @@ function createDailyReportDocument(report: ConstructionDailyReport) {
   } satisfies ProjectDocumentListItem;
 }
 
+function normalizeStoredProjectDocument(
+  document: StoredProjectDocument
+): StoredProjectDocument {
+  return {
+    ...document,
+    date: document.date ?? getTodayInputValue(),
+    documentType: document.documentType,
+    owner: document.owner || "관리자",
+    projectId: document.projectId,
+    status: document.status || "작성됨",
+    title: document.title || "새 문서"
+  };
+}
+
+function readProjectDocuments() {
+  if (typeof window === "undefined") {
+    return [] as StoredProjectDocument[];
+  }
+
+  const raw = window.localStorage.getItem(PROJECT_DOCUMENTS_STORAGE_KEY);
+
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    return (JSON.parse(raw) as StoredProjectDocument[]).map(
+      normalizeStoredProjectDocument
+    );
+  } catch {
+    return [];
+  }
+}
+
+function storeProjectDocuments(documents: StoredProjectDocument[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(
+    PROJECT_DOCUMENTS_STORAGE_KEY,
+    JSON.stringify(documents)
+  );
+}
+
 function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
   const [activeTab, setActiveTab] =
     useState<ProjectDocumentTabKey>("daily-report");
+  const [documents, setDocuments] = useState<StoredProjectDocument[]>([]);
   const [reports, setReports] = useState<ConstructionDailyReport[]>([]);
   const [dailyReportRefreshKey, setDailyReportRefreshKey] = useState(0);
   const [dailyReportPdfEndDate, setDailyReportPdfEndDate] = useState("");
   const [dailyReportPdfStartDate, setDailyReportPdfStartDate] = useState("");
+  const [isNewDocumentMenuOpen, setIsNewDocumentMenuOpen] = useState(false);
   const [projectSubcontractorNames, setProjectSubcontractorNames] = useState<
     string[]
   >([]);
@@ -5697,10 +5754,19 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     useState<ProjectDocumentListItem | null>(null);
   const activeDocument = projectDocumentTabs.find((tab) => tab.key === activeTab)!;
   const dailyReportDocuments = reports.map(createDailyReportDocument);
+  const activeStoredDocuments = documents.filter(
+    (document) =>
+      document.projectId === project.id && document.documentType === activeTab
+  );
+  const activeDocumentCount =
+    activeTab === "daily-report"
+      ? dailyReportDocuments.length
+      : activeStoredDocuments.length;
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setReports(getProjectDailyReports(project.id));
+      setDocuments(readProjectDocuments());
       setProjectSubcontractorNames(getProjectSubcontractorNames(project.id));
     });
 
@@ -5712,6 +5778,85 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
   function refreshDailyReportDocuments() {
     setReports(getProjectDailyReports(project.id));
     setDailyReportRefreshKey((value) => value + 1);
+  }
+
+  function createDailyReportManagedDocument() {
+    const reportDate = getTodayInputValue();
+    const existingReport = reports.find(
+      (report) => report.reportDate === reportDate
+    );
+
+    setActiveTab("daily-report");
+    setIsNewDocumentMenuOpen(false);
+
+    if (existingReport) {
+      setSelectedDocument(createDailyReportDocument(existingReport));
+      return;
+    }
+
+    const sourceReport = getLatestDailyReportSchemaSource(reports);
+    const defaultReport = createDefaultDailyReport(
+      project,
+      reportDate,
+      sourceReport
+    );
+    const nextReport = applyDailyReportTotals(
+      defaultReport,
+      getPreviousDailyReport(reports, defaultReport)
+    );
+    const otherReports = readDailyReports().filter(
+      (report) => report.projectId !== project.id
+    );
+    const nextProjectReports = syncProjectDailyReports([nextReport, ...reports], {
+      contractorLaborRows: nextReport.contractorLaborRows,
+      subcontractorLaborRows: nextReport.subcontractorLaborRows,
+      equipmentRows: nextReport.equipmentRows,
+      materialRows: nextReport.materialRows
+    });
+
+    storeDailyReports([...otherReports, ...nextProjectReports]);
+    setReports(nextProjectReports);
+    setDailyReportRefreshKey((value) => value + 1);
+    setSelectedDocument(createDailyReportDocument(nextReport));
+  }
+
+  function createStoredProjectDocument(
+    documentType: Exclude<ProjectDocumentTabKey, "daily-report">
+  ) {
+    const documentMeta = projectDocumentTabs.find(
+      (tab) => tab.key === documentType
+    );
+
+    if (!documentMeta) {
+      return;
+    }
+
+    const today = getTodayInputValue();
+    const nextDocument: StoredProjectDocument = {
+      id: crypto.randomUUID(),
+      projectId: project.id,
+      documentType,
+      title: `${formatKoreanDate(today)} ${documentMeta.label}`,
+      date: today,
+      owner: "관리자",
+      status: "작성됨"
+    };
+    const nextDocuments = [nextDocument, ...readProjectDocuments()];
+
+    storeProjectDocuments(nextDocuments);
+    setDocuments(nextDocuments);
+    setActiveTab(documentType);
+    setIsNewDocumentMenuOpen(false);
+    setSelectedDocument(nextDocument);
+  }
+
+  function createProjectDocument(documentType: ProjectDocumentTabKey) {
+    if (documentType === "daily-report") {
+      createDailyReportManagedDocument();
+      return;
+    }
+
+    createStoredProjectDocument(documentType);
   }
 
   function saveDailyReportDocument(nextReport: ConstructionDailyReport) {
@@ -5771,6 +5916,27 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     }
   }
 
+  function deleteStoredProjectDocument(document: ProjectDocumentListItem) {
+    if (!document.projectId || !document.documentType) {
+      return;
+    }
+
+    if (!window.confirm(`${document.title} 문서를 삭제하시겠습니까?`)) {
+      return;
+    }
+
+    const nextDocuments = readProjectDocuments().filter(
+      (item) => item.id !== document.id
+    );
+
+    storeProjectDocuments(nextDocuments);
+    setDocuments(nextDocuments);
+
+    if (selectedDocument?.id === document.id) {
+      setSelectedDocument(null);
+    }
+  }
+
   function exportDailyReportsByDate() {
     if (!dailyReportPdfStartDate && !dailyReportPdfEndDate) {
       window.alert("PDF로 저장할 날짜를 선택해주세요.");
@@ -5805,45 +5971,32 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
           </h2>
           <p className="mt-1 text-sm text-[#4d4d4d]">{project.name}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {activeTab === "daily-report" ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-[8px] border border-[#ebebeb] bg-[#fcfcfc] p-2">
-              <label className="flex items-center gap-2 text-xs font-medium text-[#4d4d4d]">
-                시작일
-                <input
-                  type="date"
-                  value={dailyReportPdfStartDate}
-                  onChange={(event) => setDailyReportPdfStartDate(event.target.value)}
-                  className="h-9 rounded-[6px] border border-[#ebebeb] bg-white px-2 text-sm text-[#171717] outline-none transition focus:border-[#171717]"
-                />
-              </label>
-              <label className="flex items-center gap-2 text-xs font-medium text-[#4d4d4d]">
-                종료일
-                <input
-                  type="date"
-                  value={dailyReportPdfEndDate}
-                  onChange={(event) => setDailyReportPdfEndDate(event.target.value)}
-                  className="h-9 rounded-[6px] border border-[#ebebeb] bg-white px-2 text-sm text-[#171717] outline-none transition focus:border-[#171717]"
-                />
-              </label>
-              <button
-                type="button"
-                className={secondaryButtonClass}
-                onClick={exportDailyReportsByDate}
-              >
-                <Download size={15} aria-hidden />
-                PDF 저장
-              </button>
-            </div>
-          ) : null}
-          <button type="button" className={secondaryButtonClass}>
-            <Upload size={15} aria-hidden />
-            업로드
-          </button>
-          <button type="button" className={primaryButtonClass}>
+        <div className="relative">
+          <button
+            type="button"
+            className={primaryButtonClass}
+            onClick={() => setIsNewDocumentMenuOpen((value) => !value)}
+          >
             <Plus size={15} aria-hidden />
             새 문서
           </button>
+          {isNewDocumentMenuOpen ? (
+            <div className="absolute right-0 z-20 mt-2 w-52 overflow-hidden rounded-[8px] border border-[#ebebeb] bg-white py-1 shadow-xl">
+              {projectDocumentTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
+                  onClick={() => createProjectDocument(tab.key)}
+                >
+                  <span className="inline-flex size-7 items-center justify-center rounded-[5px] bg-[#f6f6f6] text-[11px] font-semibold text-[#6f6f6f]">
+                    {tab.code}
+                  </span>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -5890,9 +6043,7 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
                 {activeDocument.label}
               </h3>
               <p className="mt-3 text-sm text-[#4d4d4d]">
-                {activeTab === "daily-report"
-                  ? `${dailyReportDocuments.length}건`
-                  : "0건"}
+                {activeDocumentCount}건
               </p>
             </div>
 
@@ -5910,6 +6061,46 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
                 />
               </div>
             </div>
+
+            {activeTab === "daily-report" ? (
+              <div className="mt-4 rounded-[8px] border border-[#ebebeb] bg-white p-3">
+                <p className="text-xs font-semibold text-[#4d4d4d]">
+                  공사일보 PDF 저장
+                </p>
+                <div className="mt-3 grid gap-2">
+                  <label className="grid gap-1 text-xs font-medium text-[#4d4d4d]">
+                    시작일
+                    <input
+                      type="date"
+                      value={dailyReportPdfStartDate}
+                      onChange={(event) =>
+                        setDailyReportPdfStartDate(event.target.value)
+                      }
+                      className="h-9 rounded-[6px] border border-[#ebebeb] bg-white px-2 text-sm text-[#171717] outline-none transition focus:border-[#171717]"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-medium text-[#4d4d4d]">
+                    종료일
+                    <input
+                      type="date"
+                      value={dailyReportPdfEndDate}
+                      onChange={(event) =>
+                        setDailyReportPdfEndDate(event.target.value)
+                      }
+                      className="h-9 rounded-[6px] border border-[#ebebeb] bg-white px-2 text-sm text-[#171717] outline-none transition focus:border-[#171717]"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    onClick={exportDailyReportsByDate}
+                  >
+                    <Download size={15} aria-hidden />
+                    PDF 저장
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </aside>
 
           <div className="p-4">
@@ -5922,8 +6113,9 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
               />
             ) : (
               <DocumentList
-                documents={[]}
+                documents={activeStoredDocuments}
                 emptyTitle={`${activeDocument.label} 문서가 없습니다.`}
+                onDeleteDocument={deleteStoredProjectDocument}
                 onOpenDocument={setSelectedDocument}
               />
             )}
