@@ -1837,7 +1837,7 @@ function calculateScheduleProgress(
   return Math.round((elapsedDays / totalDays) * 100);
 }
 
-function getProjectScheduleProgress(items: ProjectScheduleItem[], asOfDate: string) {
+function getProjectScheduleProgress(items: ProjectScheduleItem[]) {
   const progressItems = items.filter((item) => !isScheduleSummaryItem(item));
 
   if (progressItems.length === 0) {
@@ -1845,8 +1845,7 @@ function getProjectScheduleProgress(items: ProjectScheduleItem[], asOfDate: stri
   }
 
   const totalProgress = progressItems.reduce(
-    (total, item) =>
-      total + calculateScheduleProgress(item.startDate, item.endDate, asOfDate),
+    (total, item) => total + Math.max(0, Math.min(100, item.progress)),
     0
   );
 
@@ -4351,7 +4350,7 @@ function ProjectDashboardTab({
   const today = getTodayInputValue();
   const todayReport = reports.find((report) => report.reportDate === today) ?? null;
   const latestReport = reports[0] ?? null;
-  const scheduleProgress = getProjectScheduleProgress(schedules, today);
+  const scheduleProgress = getProjectScheduleProgress(schedules);
   const scheduleProgressStatus =
     schedules.filter((item) => !isScheduleSummaryItem(item)).length === 0
       ? "등록 공정 없음"
