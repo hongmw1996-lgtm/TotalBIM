@@ -1888,6 +1888,37 @@ function getProjectScheduleProgress(items: ProjectScheduleItem[], asOfDate: stri
   return Math.round((totals.completedDays / totals.plannedDays) * 100);
 }
 
+function getProjectConstructionPeriodSummary(
+  constructionPeriod: string | undefined,
+  asOfDate: string
+) {
+  const { endDate, startDate } = parseDateRangeValue(constructionPeriod ?? "");
+  const startTime = startDate ? getInputDateTime(startDate) : null;
+  const endTime = endDate ? getInputDateTime(endDate) : null;
+  const asOfTime = getInputDateTime(asOfDate);
+
+  if (!startDate || !endDate || !startTime || !endTime || !asOfTime) {
+    return null;
+  }
+
+  const normalizedEndTime = Math.max(startTime, endTime);
+  const elapsedDays =
+    asOfTime < startTime
+      ? 0
+      : Math.max(0, Math.floor((asOfTime - startTime) / 86_400_000)) + 1;
+  const remainingDays =
+    asOfTime >= normalizedEndTime
+      ? 0
+      : Math.max(0, Math.ceil((normalizedEndTime - asOfTime) / 86_400_000));
+
+  return {
+    elapsedDays,
+    endDate,
+    remainingDays,
+    startDate
+  };
+}
+
 function formatInputDate(date: Date) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
     .toISOString()
@@ -4385,6 +4416,10 @@ function ProjectDashboardTab({
   const [schedules, setSchedules] = useState<ProjectScheduleItem[]>([]);
   const today = getTodayInputValue();
   const latestReport = reports[0] ?? null;
+  const constructionPeriodSummary = getProjectConstructionPeriodSummary(
+    project.constructionPeriod,
+    today
+  );
   const scheduleProgress = getProjectScheduleProgress(schedules, today);
   const scheduleProgressStatus =
     schedules.filter((item) => !isScheduleSummaryItem(item)).length === 0
@@ -4437,7 +4472,22 @@ function ProjectDashboardTab({
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-4">
         <DashboardPanel title="공사기간" className="min-h-[132px]">
-          <EmptyDashboardState compact />
+          {constructionPeriodSummary ? (
+            <div className="mt-3">
+              <p className="text-xs text-[#6f6f6f]">
+                {constructionPeriodSummary.startDate} ~{" "}
+                {constructionPeriodSummary.endDate}
+              </p>
+              <p className="mt-3 text-base font-semibold text-[#171717]">
+                착공 {constructionPeriodSummary.elapsedDays}일 경과
+              </p>
+              <p className="mt-2 text-xs text-[#4d4d4d]">
+                준공까지 {constructionPeriodSummary.remainingDays}일 남음
+              </p>
+            </div>
+          ) : (
+            <EmptyDashboardState compact />
+          )}
         </DashboardPanel>
 
         <DashboardPanel title="공정률" className="min-h-[132px]" hasMenu>
