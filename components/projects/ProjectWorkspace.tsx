@@ -3510,7 +3510,7 @@ function ProjectManagement({
                     <img
                       src={project.coverImage}
                       alt=""
-                      className="size-full object-cover"
+                      className="size-full object-fill"
                     />
                   ) : (
                     <div className="text-center text-[#8f8f8f]">
