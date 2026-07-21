@@ -5692,8 +5692,13 @@ type StoredProjectDocument = Omit<ProjectDocumentListItem, "report"> & {
 };
 
 type InspectionRequestChecklistRow = {
+  action?: string;
+  contractorFirst?: string;
+  contractorSecond?: string;
   item: string;
   standard: string;
+  supervisorFirst?: string;
+  supervisorSecond?: string;
 };
 
 type InspectionRequestTemplateKey = "steel-beam" | "rebar" | "deck-plate";
@@ -6083,6 +6088,7 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     setDocuments(nextDocuments);
     setActiveTab(documentType);
     setIsNewDocumentMenuOpen(false);
+    setEditingDocumentOnOpenId(nextDocument.id);
     setSelectedDocument(nextDocument);
   }
 
@@ -6135,6 +6141,36 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     setReports(storedProjectReports);
     setDailyReportRefreshKey((value) => value + 1);
     setSelectedDocument(createDailyReportDocument(storedUpdatedReport));
+  }
+
+  function saveInspectionRequestDocument(
+    document: ProjectDocumentListItem,
+    nextInspectionRequest: InspectionRequestDocumentData
+  ) {
+    if (
+      !document.projectId ||
+      document.documentType !== "inspection-request"
+    ) {
+      return;
+    }
+
+    const nextDocuments = readProjectDocuments().map((item) =>
+      item.id === document.id
+        ? {
+            ...item,
+            date: nextInspectionRequest.inspectionRequestDate || item.date,
+            inspectionRequest: nextInspectionRequest,
+            owner: nextInspectionRequest.siteManager || item.owner,
+            status: "작성됨"
+          }
+        : item
+    );
+    const updatedDocument =
+      nextDocuments.find((item) => item.id === document.id) ?? document;
+
+    storeProjectDocuments(nextDocuments);
+    setDocuments(nextDocuments);
+    setSelectedDocument(updatedDocument);
   }
 
   function deleteDailyReportDocument(document: ProjectDocumentListItem) {
@@ -6382,6 +6418,7 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
             setEditingDocumentOnOpenId(null);
             setSelectedDocument(null);
           }}
+          onSaveInspectionRequest={saveInspectionRequestDocument}
           onSaveReport={saveDailyReportDocument}
         />
       ) : null}
@@ -6473,6 +6510,7 @@ function DocumentPreviewDialog({
   project,
   subcontractorOptions,
   onClose,
+  onSaveInspectionRequest,
   onSaveReport
 }: {
   document: ProjectDocumentListItem;
@@ -6480,25 +6518,45 @@ function DocumentPreviewDialog({
   project: WorkspaceProject;
   subcontractorOptions: string[];
   onClose: () => void;
+  onSaveInspectionRequest: (
+    document: ProjectDocumentListItem,
+    inspectionRequest: InspectionRequestDocumentData
+  ) => void;
   onSaveReport: (report: ConstructionDailyReport) => void;
 }) {
   const [isEditing, setIsEditing] = useState(initialEditing);
   const [draftReport, setDraftReport] = useState<ConstructionDailyReport | null>(
     document.report ?? null
   );
+  const [draftInspectionRequest, setDraftInspectionRequest] =
+    useState<InspectionRequestDocumentData | null>(
+      document.documentType === "inspection-request"
+        ? getInspectionRequestData(document, project)
+        : null
+    );
   const [isLoadingWeather, setIsLoadingWeather] = useState(false);
+  const isInspectionRequest = document.documentType === "inspection-request";
+  const canEditDocument = Boolean(draftReport || draftInspectionRequest);
 
   function cancelEdit() {
     setDraftReport(document.report ?? null);
+    setDraftInspectionRequest(
+      isInspectionRequest ? getInspectionRequestData(document, project) : null
+    );
     setIsEditing(false);
   }
 
   function saveEdit() {
-    if (!draftReport) {
+    if (draftReport) {
+      onSaveReport(draftReport);
+      setIsEditing(false);
       return;
     }
 
-    onSaveReport(draftReport);
+    if (draftInspectionRequest) {
+      onSaveInspectionRequest(document, draftInspectionRequest);
+    }
+
     setIsEditing(false);
   }
 
@@ -6553,7 +6611,7 @@ function DocumentPreviewDialog({
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {document.report ? (
+            {canEditDocument ? (
               isEditing ? (
                 <>
                   <button
@@ -6571,30 +6629,34 @@ function DocumentPreviewDialog({
                     <Save size={15} aria-hidden />
                     저장
                   </button>
-                  <button
-                    type="button"
-                    className={secondaryButtonClass}
-                    onClick={() => void loadKmaWeather()}
-                    disabled={isLoadingWeather}
-                  >
-                    <CloudSun size={15} aria-hidden />
-                    {isLoadingWeather ? "불러오는 중" : "기상청 불러오기"}
-                  </button>
+                  {draftReport ? (
+                    <button
+                      type="button"
+                      className={secondaryButtonClass}
+                      onClick={() => void loadKmaWeather()}
+                      disabled={isLoadingWeather}
+                    >
+                      <CloudSun size={15} aria-hidden />
+                      {isLoadingWeather ? "불러오는 중" : "기상청 불러오기"}
+                    </button>
+                  ) : null}
                 </>
               ) : (
                 <>
-                  <button
-                    type="button"
-                    className={secondaryButtonClass}
-                    onClick={() =>
-                      printDailyReportsAsPdf(project, [
-                        draftReport ?? document.report!
-                      ])
-                    }
-                  >
-                    <Download size={15} aria-hidden />
-                    PDF 저장
-                  </button>
+                  {draftReport ? (
+                    <button
+                      type="button"
+                      className={secondaryButtonClass}
+                      onClick={() =>
+                        printDailyReportsAsPdf(project, [
+                          draftReport ?? document.report!
+                        ])
+                      }
+                    >
+                      <Download size={15} aria-hidden />
+                      PDF 저장
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className={secondaryButtonClass}
@@ -6631,7 +6693,12 @@ function DocumentPreviewDialog({
             />
           ) : document.documentType === "inspection-request" ? (
             <InspectionRequestDocumentPreview
-              data={getInspectionRequestData(document, project)}
+              data={
+                draftInspectionRequest ??
+                getInspectionRequestData(document, project)
+              }
+              isEditing={isEditing}
+              onChange={setDraftInspectionRequest}
             />
           ) : (
             <div className="flex min-h-[420px] items-center justify-center rounded-[8px] border border-dashed border-[#ebebeb] bg-white text-center">
@@ -6654,18 +6721,105 @@ function DocumentPreviewDialog({
 }
 
 function InspectionRequestDocumentPreview({
-  data
+  data,
+  isEditing = false,
+  onChange
 }: {
   data: InspectionRequestDocumentData;
+  isEditing?: boolean;
+  onChange?: (data: InspectionRequestDocumentData) => void;
 }) {
-  const coverRows = [
-    ["번호", data.requestNo],
-    ["수신", data.recipient],
-    ["위치 및 공종", data.locationAndTrade],
-    ["검측 부위", data.inspectionPart],
-    ["검측 요구 일시", data.inspectionRequestDate],
-    ["검측 사항", data.inspectionSummary]
+  const coverRows: Array<{
+    key: keyof InspectionRequestDocumentData;
+    label: string;
+    multiline?: boolean;
+  }> = [
+    { key: "requestNo", label: "번호" },
+    { key: "recipient", label: "수신" },
+    { key: "locationAndTrade", label: "위치 및 공종" },
+    { key: "inspectionPart", label: "검측 부위" },
+    { key: "inspectionRequestDate", label: "검측 요구 일시" },
+    { key: "inspectionSummary", label: "검측 사항", multiline: true }
   ];
+  function updateData(patch: Partial<InspectionRequestDocumentData>) {
+    onChange?.({ ...data, ...patch });
+  }
+
+  function updateChecklist(
+    patch: Partial<InspectionRequestDocumentData["checklist"]>
+  ) {
+    onChange?.({ ...data, checklist: { ...data.checklist, ...patch } });
+  }
+
+  function updateChecklistRow(
+    index: number,
+    patch: Partial<InspectionRequestChecklistRow>
+  ) {
+    onChange?.({
+      ...data,
+      checklist: {
+        ...data.checklist,
+        rows: data.checklist.rows.map((row, rowIndex) =>
+          rowIndex === index ? { ...row, ...patch } : row
+        )
+      }
+    });
+  }
+
+  function addChecklistRow() {
+    onChange?.({
+      ...data,
+      checklist: {
+        ...data.checklist,
+        rows: [
+          ...data.checklist.rows,
+          {
+            item: "",
+            standard: ""
+          }
+        ]
+      }
+    });
+  }
+
+  function removeChecklistRow(index: number) {
+    onChange?.({
+      ...data,
+      checklist: {
+        ...data.checklist,
+        rows: data.checklist.rows.filter((_, rowIndex) => rowIndex !== index)
+      }
+    });
+  }
+
+  function renderEditableValue(
+    value: string,
+    onValueChange: (value: string) => void,
+    multiline = false
+  ) {
+    if (!isEditing) {
+      return value || "-";
+    }
+
+    if (multiline) {
+      return (
+        <textarea
+          value={value}
+          onChange={(event) => onValueChange(event.target.value)}
+          className="min-h-20 w-full resize-y rounded-[4px] border border-[#d7d7d7] px-2 py-2 text-sm outline-none transition focus:border-[#171717]"
+        />
+      );
+    }
+
+    return (
+      <input
+        type="text"
+        value={value}
+        onChange={(event) => onValueChange(event.target.value)}
+        className="h-9 w-full rounded-[4px] border border-[#d7d7d7] px-2 text-sm outline-none transition focus:border-[#171717]"
+      />
+    );
+  }
 
   return (
     <div className="mx-auto grid max-w-4xl gap-5">
@@ -6674,13 +6828,20 @@ function InspectionRequestDocumentPreview({
           검 측 요 청 서
         </h3>
         <div className="mt-6 grid gap-0 overflow-hidden border border-[#171717] text-sm">
-          {coverRows.map(([label, value]) => (
-            <div key={label} className="grid grid-cols-[150px_minmax(0,1fr)]">
+          {coverRows.map((row) => (
+            <div key={row.label} className="grid grid-cols-[150px_minmax(0,1fr)]">
               <div className="border-b border-r border-[#d7d7d7] bg-[#fcfcfc] px-4 py-3 font-semibold text-[#171717]">
-                {label}
+                {row.label}
               </div>
               <div className="border-b border-[#d7d7d7] px-4 py-3 text-[#171717]">
-                {value || "-"}
+                {renderEditableValue(
+                  String(data[row.key] ?? ""),
+                  (value) =>
+                    updateData({
+                      [row.key]: value
+                    } as Partial<InspectionRequestDocumentData>),
+                  row.multiline
+                )}
               </div>
             </div>
           ))}
@@ -6689,7 +6850,9 @@ function InspectionRequestDocumentPreview({
               첨부
             </div>
             <div className="px-4 py-3 text-[#171717]">
-              {data.attachmentText}
+              {renderEditableValue(data.attachmentText, (value) =>
+                updateData({ attachmentText: value })
+              )}
             </div>
           </div>
         </div>
@@ -6700,8 +6863,23 @@ function InspectionRequestDocumentPreview({
         </p>
 
         <div className="mt-6 grid gap-2 text-sm text-[#171717]">
-          <p>공사명 : {data.constructionName}</p>
-          <p>현장대리인 : {data.siteManager} (인)</p>
+          <div className="grid grid-cols-[90px_minmax(0,1fr)] items-center gap-2">
+            <span>공사명 :</span>
+            <span>
+              {renderEditableValue(data.constructionName, (value) =>
+                updateData({ constructionName: value })
+              )}
+            </span>
+          </div>
+          <div className="grid grid-cols-[90px_minmax(0,1fr)] items-center gap-2">
+            <span>현장대리인 :</span>
+            <span>
+              {renderEditableValue(data.siteManager, (value) =>
+                updateData({ siteManager: value })
+              )}{" "}
+              (인)
+            </span>
+          </div>
         </div>
 
         <div className="mt-8 border-t border-[#171717] pt-5">
@@ -6710,10 +6888,39 @@ function InspectionRequestDocumentPreview({
           </h4>
           <div className="mt-4 grid gap-2 text-sm text-[#171717]">
             <p>검측요청서 번호 {data.requestNo}에 대한 검측결과를 통보합니다.</p>
-            <p>수신 : {data.resultRecipient}</p>
-            <p>검측일자 : {data.inspectionRequestDate}</p>
-            <p>첨부 : {data.resultAttachmentText}</p>
-            <p>총괄 감리 책임자 : {data.supervisingInspector || "(인)"}</p>
+            <div className="grid grid-cols-[90px_minmax(0,1fr)] items-center gap-2">
+              <span>수신 :</span>
+              <span>
+                {renderEditableValue(data.resultRecipient, (value) =>
+                  updateData({ resultRecipient: value })
+                )}
+              </span>
+            </div>
+            <div className="grid grid-cols-[90px_minmax(0,1fr)] items-center gap-2">
+              <span>검측일자 :</span>
+              <span>
+                {renderEditableValue(data.inspectionRequestDate, (value) =>
+                  updateData({ inspectionRequestDate: value })
+                )}
+              </span>
+            </div>
+            <div className="grid grid-cols-[90px_minmax(0,1fr)] items-center gap-2">
+              <span>첨부 :</span>
+              <span>
+                {renderEditableValue(data.resultAttachmentText, (value) =>
+                  updateData({ resultAttachmentText: value })
+                )}
+              </span>
+            </div>
+            <div className="grid grid-cols-[120px_minmax(0,1fr)] items-center gap-2">
+              <span>총괄 감리 책임자 :</span>
+              <span>
+                {renderEditableValue(data.supervisingInspector, (value) =>
+                  updateData({ supervisingInspector: value })
+                )}{" "}
+                (인)
+              </span>
+            </div>
           </div>
         </div>
       </section>
@@ -6725,21 +6932,51 @@ function InspectionRequestDocumentPreview({
 
         <div className="mt-6 grid grid-cols-2 overflow-hidden border border-[#171717] text-sm max-md:grid-cols-1">
           {[
-            ["공종 CODE No.", data.requestNo],
-            ["검측일자", data.requestPeriod],
-            ["공종", data.checklist.trade],
-            ["위치 및 부위", data.inspectionPart],
-            ["세부공종", data.checklist.subTrade],
-            ["도면번호", data.checklist.drawingNumber]
-          ].map(([label, value]) => (
+            {
+              label: "공종 CODE No.",
+              value: data.requestNo,
+              onValueChange: (value: string) => updateData({ requestNo: value })
+            },
+            {
+              label: "검측일자",
+              value: data.requestPeriod,
+              onValueChange: (value: string) =>
+                updateData({ requestPeriod: value })
+            },
+            {
+              label: "공종",
+              value: data.checklist.trade,
+              onValueChange: (value: string) => updateChecklist({ trade: value })
+            },
+            {
+              label: "위치 및 부위",
+              value: data.inspectionPart,
+              onValueChange: (value: string) =>
+                updateData({ inspectionPart: value })
+            },
+            {
+              label: "세부공종",
+              value: data.checklist.subTrade,
+              onValueChange: (value: string) =>
+                updateChecklist({ subTrade: value })
+            },
+            {
+              label: "도면번호",
+              value: data.checklist.drawingNumber,
+              onValueChange: (value: string) =>
+                updateChecklist({ drawingNumber: value })
+            }
+          ].map((field) => (
             <div
-              key={label}
+              key={field.label}
               className="grid grid-cols-[120px_minmax(0,1fr)] border-b border-[#d7d7d7]"
             >
               <div className="border-r border-[#d7d7d7] bg-[#fcfcfc] px-3 py-2 font-semibold">
-                {label}
+                {field.label}
               </div>
-              <div className="px-3 py-2">{value || "-"}</div>
+              <div className="px-3 py-2">
+                {renderEditableValue(field.value, field.onValueChange)}
+              </div>
             </div>
           ))}
         </div>
@@ -6772,27 +7009,109 @@ function InspectionRequestDocumentPreview({
               </tr>
             </thead>
             <tbody>
-              {data.checklist.rows.map((row) => (
-                <tr key={row.item}>
+              {data.checklist.rows.map((row, rowIndex) => (
+                <tr key={`${row.item}-${rowIndex}`}>
                   <td className="border border-[#d7d7d7] px-3 py-2 font-medium">
-                    {row.item}
+                    {isEditing ? (
+                      <textarea
+                        value={row.item}
+                        onChange={(event) =>
+                          updateChecklistRow(rowIndex, {
+                            item: event.target.value
+                          })
+                        }
+                        className="min-h-16 w-full resize-y rounded-[4px] border border-[#d7d7d7] px-2 py-2 text-sm outline-none transition focus:border-[#171717]"
+                      />
+                    ) : (
+                      row.item || "-"
+                    )}
                   </td>
-                  <td className="border border-[#d7d7d7] px-3 py-2 whitespace-pre-line">
-                    {row.standard}
+                  <td className="whitespace-pre-line border border-[#d7d7d7] px-3 py-2">
+                    {isEditing ? (
+                      <textarea
+                        value={row.standard}
+                        onChange={(event) =>
+                          updateChecklistRow(rowIndex, {
+                            standard: event.target.value
+                          })
+                        }
+                        className="min-h-16 w-full resize-y rounded-[4px] border border-[#d7d7d7] px-2 py-2 text-sm outline-none transition focus:border-[#171717]"
+                      />
+                    ) : (
+                      row.standard || "-"
+                    )}
                   </td>
-                  {Array.from({ length: 5 }).map((_, index) => (
+                  {(
+                    [
+                      "contractorFirst",
+                      "contractorSecond",
+                      "supervisorFirst",
+                      "supervisorSecond"
+                    ] as Array<keyof InspectionRequestChecklistRow>
+                  ).map((key) => (
                     <td
-                      key={`${row.item}-${index}`}
-                      className="border border-[#d7d7d7] px-3 py-2 text-center text-[#8f8f8f]"
+                      key={`${row.item}-${rowIndex}-${key}`}
+                      className="border border-[#d7d7d7] px-3 py-2 text-center text-[#4d4d4d]"
                     >
-                      -
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={String(row[key] ?? "")}
+                          onChange={(event) =>
+                            updateChecklistRow(rowIndex, {
+                              [key]: event.target.value
+                            } as Partial<InspectionRequestChecklistRow>)
+                          }
+                          className="h-8 w-full rounded-[4px] border border-[#d7d7d7] px-2 text-center text-sm outline-none transition focus:border-[#171717]"
+                        />
+                      ) : (
+                        String(row[key] || "-")
+                      )}
                     </td>
                   ))}
+                  <td className="border border-[#d7d7d7] px-3 py-2 text-center text-[#4d4d4d]">
+                    {isEditing ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={row.action ?? ""}
+                          onChange={(event) =>
+                            updateChecklistRow(rowIndex, {
+                              action: event.target.value
+                            })
+                          }
+                          className="h-8 min-w-28 flex-1 rounded-[4px] border border-[#d7d7d7] px-2 text-sm outline-none transition focus:border-[#171717]"
+                        />
+                        <button
+                          type="button"
+                          className="inline-flex size-8 shrink-0 items-center justify-center rounded-[4px] text-[#8f8f8f] transition hover:bg-[#f6f6f6] hover:text-[#171717]"
+                          aria-label="검측 체크리스트 항목 삭제"
+                          onClick={() => removeChecklistRow(rowIndex)}
+                        >
+                          <Trash2 size={14} aria-hidden />
+                        </button>
+                      </div>
+                    ) : (
+                      row.action || "-"
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {isEditing ? (
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              className={secondaryButtonClass}
+              onClick={addChecklistRow}
+            >
+              <Plus size={15} aria-hidden />
+              항목 추가
+            </button>
+          </div>
+        ) : null}
 
         <div className="mt-5 grid grid-cols-2 gap-3 text-sm max-md:grid-cols-1">
           <div className="rounded-[6px] border border-[#d7d7d7] px-4 py-3">
