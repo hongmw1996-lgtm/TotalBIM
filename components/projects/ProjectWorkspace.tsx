@@ -36,7 +36,7 @@ import {
   X
 } from "lucide-react";
 import type { ChangeEvent, ReactNode } from "react";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { BimViewer } from "@/components/bim-viewer/BimViewer";
 import { IfcUploadButton } from "@/components/bim-sidebar/IfcUploadButton";
 import { ViewerSidebar } from "@/components/bim-sidebar/ViewerSidebar";
@@ -193,6 +193,17 @@ type DailyReportPhoto = {
   dataUrl: string;
   caption: string;
   createdAt: string;
+};
+
+type SitePhotoUploadDraft = {
+  file: File;
+  fileName: string;
+  keepAspectRatio: boolean;
+  naturalHeight: number;
+  naturalWidth: number;
+  previewUrl: string;
+  targetHeight: number;
+  targetWidth: number;
 };
 
 type ConstructionDailyReport = {
@@ -3880,8 +3891,23 @@ function ProjectSitePhotosTab({
 }) {
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [photoUploadError, setPhotoUploadError] = useState("");
+  const [photoUploadDraft, setPhotoUploadDraft] =
+    useState<SitePhotoUploadDraft | null>(null);
+  const photoUploadDraftRef = useRef<SitePhotoUploadDraft | null>(null);
 
-  async function uploadSitePhoto(event: ChangeEvent<HTMLInputElement>) {
+  useEffect(() => {
+    photoUploadDraftRef.current = photoUploadDraft;
+  }, [photoUploadDraft]);
+
+  useEffect(() => {
+    return () => {
+      if (photoUploadDraftRef.current) {
+        URL.revokeObjectURL(photoUploadDraftRef.current.previewUrl);
+      }
+    };
+  }, []);
+
+  async function openPhotoUploadEditor(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
 
@@ -3889,13 +3915,124 @@ function ProjectSitePhotosTab({
       return;
     }
 
+    if (!file.type.startsWith("image/")) {
+      setPhotoUploadError("이미지 파일만 업로드할 수 있습니다.");
+      return;
+    }
+
+    const previousDraft = photoUploadDraft;
+    const previewUrl = URL.createObjectURL(file);
+    setPhotoUploadError("");
+
+    try {
+      const { height, width } = await getImageDimensions(previewUrl);
+      const maxEdge = 1600;
+      const scale = Math.min(1, maxEdge / Math.max(width, height));
+
+      if (previousDraft) {
+        URL.revokeObjectURL(previousDraft.previewUrl);
+      }
+
+      setPhotoUploadDraft({
+        file,
+        fileName: file.name,
+        keepAspectRatio: true,
+        naturalHeight: height,
+        naturalWidth: width,
+        previewUrl,
+        targetHeight: Math.max(1, Math.round(height * scale)),
+        targetWidth: Math.max(1, Math.round(width * scale))
+      });
+    } catch (error) {
+      URL.revokeObjectURL(previewUrl);
+      setPhotoUploadError(
+        error instanceof Error ? error.message : "사진 파일을 읽지 못했습니다."
+      );
+    }
+  }
+
+  function closePhotoUploadEditor() {
+    if (photoUploadDraft) {
+      URL.revokeObjectURL(photoUploadDraft.previewUrl);
+    }
+
+    setPhotoUploadDraft(null);
+  }
+
+  function updatePhotoTargetWidth(value: string) {
+    if (!photoUploadDraft) {
+      return;
+    }
+
+    const targetWidth = clampSitePhotoSize(value);
+    const targetHeight = photoUploadDraft.keepAspectRatio
+      ? Math.max(
+          1,
+          Math.round(
+            targetWidth *
+              (photoUploadDraft.naturalHeight / photoUploadDraft.naturalWidth)
+          )
+        )
+      : photoUploadDraft.targetHeight;
+
+    setPhotoUploadDraft({
+      ...photoUploadDraft,
+      targetHeight,
+      targetWidth
+    });
+  }
+
+  function updatePhotoTargetHeight(value: string) {
+    if (!photoUploadDraft) {
+      return;
+    }
+
+    const targetHeight = clampSitePhotoSize(value);
+    const targetWidth = photoUploadDraft.keepAspectRatio
+      ? Math.max(
+          1,
+          Math.round(
+            targetHeight *
+              (photoUploadDraft.naturalWidth / photoUploadDraft.naturalHeight)
+          )
+        )
+      : photoUploadDraft.targetWidth;
+
+    setPhotoUploadDraft({
+      ...photoUploadDraft,
+      targetHeight,
+      targetWidth
+    });
+  }
+
+  function togglePhotoAspectRatio(keepAspectRatio: boolean) {
+    if (!photoUploadDraft) {
+      return;
+    }
+
+    setPhotoUploadDraft({
+      ...photoUploadDraft,
+      keepAspectRatio
+    });
+  }
+
+  async function uploadAdjustedSitePhoto() {
+    if (!photoUploadDraft || isUploadingPhoto) {
+      return;
+    }
+
     setIsUploadingPhoto(true);
     setPhotoUploadError("");
 
     try {
+      const resizedFile = await createResizedSitePhotoFile(
+        photoUploadDraft.file,
+        photoUploadDraft.targetWidth,
+        photoUploadDraft.targetHeight
+      );
       const formData = new FormData();
       formData.append("projectId", project.id);
-      formData.append("file", file);
+      formData.append("file", resizedFile);
 
       const response = await fetch("/api/projects/photos/upload", {
         method: "POST",
@@ -3915,6 +4052,7 @@ function ProjectSitePhotosTab({
       onUpdateProject(project.id, {
         coverImage: payload.photo.url
       });
+      closePhotoUploadEditor();
     } catch (error) {
       setPhotoUploadError(
         error instanceof Error ? error.message : "사진 업로드에 실패했습니다."
@@ -3970,13 +4108,165 @@ function ProjectSitePhotosTab({
               accept="image/*"
               className="sr-only"
               disabled={isUploadingPhoto}
-              onChange={(event) => void uploadSitePhoto(event)}
+              onChange={(event) => void openPhotoUploadEditor(event)}
             />
           </label>
         </div>
       </div>
 
       <ProjectInfoTable project={project} compact />
+
+      {photoUploadDraft ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="site-photo-upload-title"
+        >
+          <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-[12px] border border-[#dedede] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.18)]">
+            <div className="flex items-center justify-between gap-3 border-b border-[#ebebeb] px-5 py-4">
+              <div>
+                <h3
+                  id="site-photo-upload-title"
+                  className="text-base font-semibold text-[#171717]"
+                >
+                  사진 크기 조절
+                </h3>
+                <p className="mt-1 text-xs text-[#6f6f6f]">
+                  조절한 크기로 저장한 뒤 Google Drive에 업로드합니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="inline-flex size-9 items-center justify-center rounded-[6px] text-[#8f8f8f] transition hover:bg-[#f6f6f6] hover:text-[#171717]"
+                aria-label="사진 크기 조절 닫기"
+                onClick={closePhotoUploadEditor}
+                disabled={isUploadingPhoto}
+              >
+                <X size={18} aria-hidden />
+              </button>
+            </div>
+
+            <div className="grid min-h-0 gap-5 overflow-y-auto p-5 lg:grid-cols-[minmax(0,1fr)_280px]">
+              <div className="flex min-h-[360px] items-center justify-center rounded-[8px] border border-[#ebebeb] bg-[#f8f8f8] p-4">
+                <div
+                  className="max-h-[520px] max-w-full overflow-hidden rounded-[8px] border border-[#d9d9d9] bg-white shadow-sm"
+                  style={{
+                    aspectRatio: `${photoUploadDraft.targetWidth} / ${photoUploadDraft.targetHeight}`,
+                    width: "min(100%, 640px)"
+                  }}
+                >
+                  {/* Local object URL preview before uploading to Drive. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photoUploadDraft.previewUrl}
+                    alt={photoUploadDraft.fileName}
+                    className="size-full object-fill"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm font-semibold text-[#171717]">
+                    {photoUploadDraft.fileName}
+                  </p>
+                  <p className="mt-1 text-xs text-[#6f6f6f]">
+                    원본 {photoUploadDraft.naturalWidth} x{" "}
+                    {photoUploadDraft.naturalHeight}px
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 text-sm font-medium text-[#171717]">
+                  <input
+                    type="checkbox"
+                    checked={photoUploadDraft.keepAspectRatio}
+                    onChange={(event) =>
+                      togglePhotoAspectRatio(event.target.checked)
+                    }
+                  />
+                  비율 유지
+                </label>
+
+                <div className="grid gap-3">
+                  <label className="grid gap-2 text-sm font-medium text-[#171717]">
+                    가로(px)
+                    <input
+                      type="number"
+                      min={64}
+                      max={2400}
+                      className={inputClass}
+                      value={photoUploadDraft.targetWidth}
+                      onChange={(event) =>
+                        updatePhotoTargetWidth(event.target.value)
+                      }
+                    />
+                  </label>
+                  <input
+                    type="range"
+                    min={64}
+                    max={2400}
+                    value={photoUploadDraft.targetWidth}
+                    onChange={(event) =>
+                      updatePhotoTargetWidth(event.target.value)
+                    }
+                  />
+                </div>
+
+                <div className="grid gap-3">
+                  <label className="grid gap-2 text-sm font-medium text-[#171717]">
+                    세로(px)
+                    <input
+                      type="number"
+                      min={64}
+                      max={2400}
+                      className={inputClass}
+                      value={photoUploadDraft.targetHeight}
+                      onChange={(event) =>
+                        updatePhotoTargetHeight(event.target.value)
+                      }
+                    />
+                  </label>
+                  <input
+                    type="range"
+                    min={64}
+                    max={2400}
+                    value={photoUploadDraft.targetHeight}
+                    onChange={(event) =>
+                      updatePhotoTargetHeight(event.target.value)
+                    }
+                  />
+                </div>
+
+                <div className="rounded-[6px] border border-[#ebebeb] bg-[#fcfcfc] px-3 py-2 text-xs text-[#6f6f6f]">
+                  업로드 크기 {photoUploadDraft.targetWidth} x{" "}
+                  {photoUploadDraft.targetHeight}px
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-[#ebebeb] px-5 py-4">
+              <button
+                type="button"
+                className={secondaryButtonClass}
+                onClick={closePhotoUploadEditor}
+                disabled={isUploadingPhoto}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className={primaryButtonClass}
+                onClick={() => void uploadAdjustedSitePhoto()}
+                disabled={isUploadingPhoto}
+              >
+                <Upload size={15} aria-hidden />
+                {isUploadingPhoto ? "업로드 중" : "업로드"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -4334,6 +4624,89 @@ function getDashboardNoteItems(report: ConstructionDailyReport) {
     .filter(Boolean);
 
   return Array.from(new Set(items)).slice(0, 6);
+}
+
+function clampSitePhotoSize(value: string) {
+  const parsed = Math.round(Number(value));
+
+  if (!Number.isFinite(parsed)) {
+    return 64;
+  }
+
+  return Math.min(2400, Math.max(64, parsed));
+}
+
+function loadBrowserImage(source: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+
+    image.onerror = () => reject(new Error("사진 파일을 이미지로 처리하지 못했습니다."));
+    image.onload = () => resolve(image);
+    image.src = source;
+  });
+}
+
+async function getImageDimensions(source: string) {
+  const image = await loadBrowserImage(source);
+
+  return {
+    height: image.height,
+    width: image.width
+  };
+}
+
+function getResizedSitePhotoFileName(file: File, contentType: string) {
+  const baseName = file.name.replace(/\.[^.]*$/, "") || "site-photo";
+  const extension = contentType === "image/png" ? "png" : "jpg";
+
+  return `${baseName}.${extension}`;
+}
+
+async function createResizedSitePhotoFile(
+  file: File,
+  width: number,
+  height: number
+) {
+  const source = URL.createObjectURL(file);
+
+  try {
+    const image = await loadBrowserImage(source);
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    const contentType = file.type === "image/png" ? "image/png" : "image/jpeg";
+
+    if (!context) {
+      throw new Error("사진을 처리할 수 없습니다.");
+    }
+
+    canvas.width = Math.max(1, Math.round(width));
+    canvas.height = Math.max(1, Math.round(height));
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (result) => {
+          if (result) {
+            resolve(result);
+          } else {
+            reject(new Error("사진 파일을 생성하지 못했습니다."));
+          }
+        },
+        contentType,
+        contentType === "image/png" ? undefined : 0.88
+      );
+    });
+
+    return new File(
+      [blob],
+      getResizedSitePhotoFileName(file, contentType),
+      {
+        type: contentType
+      }
+    );
+  } finally {
+    URL.revokeObjectURL(source);
+  }
 }
 
 function resizeDailyReportPhoto(file: File) {
