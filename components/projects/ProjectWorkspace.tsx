@@ -1085,12 +1085,14 @@ function printDailyReportsAsPdf(
       : `${sortedReports[0].reportDate}~${
           sortedReports[sortedReports.length - 1].reportDate
         } 공사일보`;
-  const printWindow = window.open("", "_blank", "noopener,noreferrer");
+  const printWindow = window.open("about:blank", "_blank");
 
   if (!printWindow) {
     window.alert("팝업이 차단되었습니다. 팝업 허용 후 다시 PDF 저장을 눌러주세요.");
     return;
   }
+
+  printWindow.opener = null;
 
   printWindow.document.write(`<!doctype html>
     <html lang="ko">
