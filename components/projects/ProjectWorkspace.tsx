@@ -25,6 +25,7 @@ import {
   PanelLeftOpen,
   Paperclip,
   Plus,
+  Printer,
   RotateCcw,
   Save,
   Search,
@@ -973,7 +974,7 @@ function renderDailyReportPrintHtml(report: ConstructionDailyReport) {
       : `<div class="empty">첨부된 현장사진이 없습니다.</div>`;
 
   return `
-    <article class="daily-report">
+    <article class="print-document daily-report">
       <header>
         <h1>공사일보</h1>
         <p>${escapeHtml(formatKoreanDate(report.reportDate))}</p>
@@ -1067,33 +1068,137 @@ function renderDailyReportPrintHtml(report: ConstructionDailyReport) {
   `;
 }
 
-function printDailyReportsAsPdf(
-  project: WorkspaceProject,
-  reports: ConstructionDailyReport[]
-) {
-  if (reports.length === 0) {
-    window.alert("PDF로 저장할 공사일보가 없습니다.");
-    return;
-  }
+function renderInspectionRequestPrintHtml(data: InspectionRequestDocumentData) {
+  return `
+    <article class="print-document inspection-request">
+      <header>
+        <h1>검 측 요 청 서</h1>
+      </header>
 
-  const sortedReports = [...reports].sort((left, right) =>
-    left.reportDate.localeCompare(right.reportDate)
-  );
-  const title =
-    sortedReports.length === 1
-      ? `${sortedReports[0].reportDate} 공사일보`
-      : `${sortedReports[0].reportDate}~${
-          sortedReports[sortedReports.length - 1].reportDate
-        } 공사일보`;
+      <section class="inspection-fields">
+        ${[
+          ["번호", data.requestNo],
+          ["수신", data.recipient],
+          ["위치 및 공종", data.locationAndTrade],
+          ["검측 부위", data.inspectionPart],
+          ["검측 요구 일시", data.inspectionRequestDate],
+          ["검측 사항", data.inspectionSummary],
+          ["첨부", data.attachmentText]
+        ]
+          .map(
+            ([label, value]) => `
+              <div>
+                <strong>${escapeHtml(label)}</strong>
+                <span>${renderPrintCell(value)}</span>
+              </div>
+            `
+          )
+          .join("")}
+      </section>
+
+      <p class="description">
+        다음과 같은 세부공종에 대하여 검측요청하오니 검사 후 승인하여
+        주시기 바랍니다.
+      </p>
+
+      <section class="signature-fields">
+        <p><strong>공사명 :</strong> ${renderPrintCell(data.constructionName)}</p>
+        <p><strong>현장대리인 :</strong> ${renderPrintCell(data.siteManager)} (인)</p>
+      </section>
+
+      <section class="result-section">
+        <h2>검 측 결 과 통 보 서</h2>
+        <p>검측요청서 번호 ${renderPrintCell(data.requestNo)}에 대한 검측결과를 통보합니다.</p>
+        <p><strong>수신 :</strong> ${renderPrintCell(data.resultRecipient)}</p>
+        <p><strong>검측일자 :</strong> ${renderPrintCell(data.inspectionRequestDate)}</p>
+        <p><strong>첨부 :</strong> ${renderPrintCell(data.resultAttachmentText)}</p>
+        <p><strong>총괄 감리 책임자 :</strong> ${renderPrintCell(data.supervisingInspector)} (인)</p>
+      </section>
+
+      <section class="checklist-section">
+        <h2>검 측 체 크 리 스 트</h2>
+        <div class="checklist-meta">
+          ${[
+            ["공종 CODE No.", data.requestNo],
+            ["검측일자", data.requestPeriod],
+            ["공종", data.checklist.trade],
+            ["위치 및 부위", data.inspectionPart],
+            ["세부공종", data.checklist.subTrade],
+            ["도면번호", data.checklist.drawingNumber]
+          ]
+            .map(
+              ([label, value]) => `
+                <div>
+                  <strong>${escapeHtml(label)}</strong>
+                  <span>${renderPrintCell(value)}</span>
+                </div>
+              `
+            )
+            .join("")}
+        </div>
+        <table class="checklist-table">
+          <thead>
+            <tr>
+              <th rowspan="2">검사항목</th>
+              <th rowspan="2">검사기준</th>
+              <th colspan="2">시공자</th>
+              <th colspan="2">감리자</th>
+              <th rowspan="2">조치사항</th>
+            </tr>
+            <tr>
+              <th>1차</th>
+              <th>2차</th>
+              <th>1차</th>
+              <th>2차</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.checklist.rows
+              .map(
+                (row) => `
+                  <tr>
+                    <td>${renderPrintCell(row.item)}</td>
+                    <td>${renderPrintCell(row.standard)}</td>
+                    <td>${renderPrintCell(row.contractorFirst ?? "")}</td>
+                    <td>${renderPrintCell(row.contractorSecond ?? "")}</td>
+                    <td>${renderPrintCell(row.supervisorFirst ?? "")}</td>
+                    <td>${renderPrintCell(row.supervisorSecond ?? "")}</td>
+                    <td>${renderPrintCell(row.action ?? "")}</td>
+                  </tr>
+                `
+              )
+              .join("")}
+          </tbody>
+        </table>
+        <div class="approval-grid">
+          <div>시공자 점검 : 성명 (인)</div>
+          <div>감리원 검측 : 성명 (인)</div>
+          <div>시공자 재점검 : 성명 (인)</div>
+          <div>감리원 재검측 : 성명 (인)</div>
+        </div>
+        <p class="caption">※ 검측사진첨부.</p>
+      </section>
+    </article>
+  `;
+}
+
+function openPrintDocument({
+  bodyHtml,
+  project,
+  title
+}: {
+  bodyHtml: string;
+  project: WorkspaceProject;
+  title: string;
+}) {
   const printWindow = window.open("about:blank", "_blank");
 
   if (!printWindow) {
-    window.alert("팝업이 차단되었습니다. 팝업 허용 후 다시 PDF 저장을 눌러주세요.");
+    window.alert("팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.");
     return;
   }
 
   printWindow.opener = null;
-
   printWindow.document.write(`<!doctype html>
     <html lang="ko">
       <head>
@@ -1116,7 +1221,7 @@ function printDailyReportsAsPdf(
             font-size: 13px;
             color: #4d4d4d;
           }
-          .daily-report {
+          .print-document {
             max-width: 900px;
             margin: 0 auto 24px;
             padding: 24px;
@@ -1125,7 +1230,7 @@ function printDailyReportsAsPdf(
             background: #fff;
             page-break-after: always;
           }
-          .daily-report:last-child {
+          .print-document:last-child {
             page-break-after: auto;
           }
           header {
@@ -1154,22 +1259,57 @@ function printDailyReportsAsPdf(
             grid-template-columns: 1fr 1fr;
             gap: 10px 12px;
           }
-          .fields div {
+          .fields div,
+          .inspection-fields div,
+          .checklist-meta div {
             display: grid;
-            grid-template-columns: 96px 1fr;
+            grid-template-columns: 120px 1fr;
             border: 1px solid #ebebeb;
-            border-radius: 6px;
             overflow: hidden;
           }
-          .fields strong {
+          .fields div {
+            border-radius: 6px;
+          }
+          .fields strong,
+          .inspection-fields strong,
+          .checklist-meta strong {
             padding: 10px 12px;
             background: #fcfcfc;
             color: #4d4d4d;
             font-size: 13px;
           }
-          .fields span {
+          .fields span,
+          .inspection-fields span,
+          .checklist-meta span {
             padding: 10px 12px;
             font-size: 13px;
+            white-space: pre-wrap;
+          }
+          .inspection-fields,
+          .checklist-meta {
+            display: grid;
+            gap: 0;
+            border: 1px solid #171717;
+          }
+          .inspection-fields div,
+          .checklist-meta div {
+            border-width: 0 0 1px;
+          }
+          .inspection-fields div:last-child,
+          .checklist-meta div:last-child {
+            border-bottom: 0;
+          }
+          .description,
+          .signature-fields p,
+          .result-section p,
+          .caption {
+            font-size: 13px;
+            line-height: 1.7;
+            color: #4d4d4d;
+          }
+          .result-section {
+            border-top: 1px solid #171717;
+            padding-top: 18px;
           }
           table {
             width: 100%;
@@ -1187,6 +1327,10 @@ function printDailyReportsAsPdf(
             border-bottom: 1px solid #f2f2f2;
             padding: 8px 10px;
             vertical-align: top;
+          }
+          .checklist-table th,
+          .checklist-table td {
+            border: 1px solid #d7d7d7;
           }
           .empty, .notes {
             min-height: 48px;
@@ -1222,6 +1366,18 @@ function printDailyReportsAsPdf(
             font-size: 12px;
             color: #4d4d4d;
           }
+          .approval-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 16px;
+            font-size: 13px;
+          }
+          .approval-grid div {
+            border: 1px solid #d7d7d7;
+            border-radius: 6px;
+            padding: 12px;
+          }
           @page {
             size: A4;
             margin: 12mm;
@@ -1230,7 +1386,7 @@ function printDailyReportsAsPdf(
             body { background: #fff; }
             .print-root { padding: 0; }
             .project-title { max-width: none; }
-            .daily-report {
+            .print-document {
               max-width: none;
               margin: 0;
               border: 0;
@@ -1245,17 +1401,76 @@ function printDailyReportsAsPdf(
           <p class="project-title">${escapeHtml(project.name)} · ${escapeHtml(
             title
           )}</p>
-          ${sortedReports.map(renderDailyReportPrintHtml).join("")}
+          ${bodyHtml}
         </main>
         <script>
-          window.addEventListener("load", () => {
-            window.focus();
-            window.print();
-          });
+          async function waitForPrintAssets() {
+            if (document.fonts && document.fonts.ready) {
+              await document.fonts.ready.catch(() => undefined);
+            }
+            const images = Array.from(document.images);
+            await Promise.all(images.map((image) => {
+              if (image.complete) return Promise.resolve();
+              return new Promise((resolve) => {
+                image.addEventListener("load", resolve, { once: true });
+                image.addEventListener("error", resolve, { once: true });
+              });
+            }));
+          }
+          async function startPrint() {
+            await waitForPrintAssets();
+            setTimeout(() => {
+              window.focus();
+              window.print();
+            }, 300);
+          }
+          if (document.readyState === "complete") {
+            startPrint();
+          } else {
+            window.addEventListener("load", startPrint, { once: true });
+          }
         </script>
       </body>
     </html>`);
   printWindow.document.close();
+}
+
+function printDailyReportsAsPdf(
+  project: WorkspaceProject,
+  reports: ConstructionDailyReport[]
+) {
+  if (reports.length === 0) {
+    window.alert("PDF로 저장할 공사일보가 없습니다.");
+    return;
+  }
+
+  const sortedReports = [...reports].sort((left, right) =>
+    left.reportDate.localeCompare(right.reportDate)
+  );
+  const title =
+    sortedReports.length === 1
+      ? `${sortedReports[0].reportDate} 공사일보`
+      : `${sortedReports[0].reportDate}~${
+          sortedReports[sortedReports.length - 1].reportDate
+        } 공사일보`;
+
+  openPrintDocument({
+    bodyHtml: sortedReports.map(renderDailyReportPrintHtml).join(""),
+    project,
+    title
+  });
+}
+
+function printInspectionRequestAsPdf(
+  project: WorkspaceProject,
+  document: ProjectDocumentListItem,
+  inspectionRequest: InspectionRequestDocumentData
+) {
+  openPrintDocument({
+    bodyHtml: renderInspectionRequestPrintHtml(inspectionRequest),
+    project,
+    title: document.title || `${inspectionRequest.inspectionRequestDate} 검측요청서`
+  });
 }
 
 function getDailyReportTimeValue(report: ConstructionDailyReport) {
@@ -6555,6 +6770,9 @@ function DocumentPreviewDialog({
     );
   const [isLoadingWeather, setIsLoadingWeather] = useState(false);
   const isInspectionRequest = document.documentType === "inspection-request";
+  const printableInspectionRequest = isInspectionRequest
+    ? draftInspectionRequest ?? getInspectionRequestData(document, project)
+    : null;
   const canEditDocument = Boolean(draftReport || draftInspectionRequest);
 
   function cancelEdit() {
@@ -6614,6 +6832,17 @@ function DocumentPreviewDialog({
     }
   }
 
+  function printCurrentDocument() {
+    if (draftReport) {
+      printDailyReportsAsPdf(project, [draftReport]);
+      return;
+    }
+
+    if (printableInspectionRequest) {
+      printInspectionRequestAsPdf(project, document, printableInspectionRequest);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
       <div className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-[10px] bg-white shadow-2xl">
@@ -6633,6 +6862,26 @@ function DocumentPreviewDialog({
             {canEditDocument ? (
               isEditing ? (
                 <>
+                  {draftReport || printableInspectionRequest ? (
+                    <button
+                      type="button"
+                      className={secondaryButtonClass}
+                      onClick={printCurrentDocument}
+                    >
+                      <Printer size={15} aria-hidden />
+                      출력
+                    </button>
+                  ) : null}
+                  {draftReport || printableInspectionRequest ? (
+                    <button
+                      type="button"
+                      className={secondaryButtonClass}
+                      onClick={printCurrentDocument}
+                    >
+                      <Download size={15} aria-hidden />
+                      PDF 저장
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className={secondaryButtonClass}
@@ -6662,15 +6911,21 @@ function DocumentPreviewDialog({
                 </>
               ) : (
                 <>
-                  {draftReport ? (
+                  {draftReport || printableInspectionRequest ? (
                     <button
                       type="button"
                       className={secondaryButtonClass}
-                      onClick={() =>
-                        printDailyReportsAsPdf(project, [
-                          draftReport ?? document.report!
-                        ])
-                      }
+                      onClick={printCurrentDocument}
+                    >
+                      <Printer size={15} aria-hidden />
+                      출력
+                    </button>
+                  ) : null}
+                  {draftReport || printableInspectionRequest ? (
+                    <button
+                      type="button"
+                      className={secondaryButtonClass}
+                      onClick={printCurrentDocument}
                     >
                       <Download size={15} aria-hidden />
                       PDF 저장
@@ -6712,10 +6967,7 @@ function DocumentPreviewDialog({
             />
           ) : document.documentType === "inspection-request" ? (
             <InspectionRequestDocumentPreview
-              data={
-                draftInspectionRequest ??
-                getInspectionRequestData(document, project)
-              }
+              data={printableInspectionRequest!}
               isEditing={isEditing}
               onChange={setDraftInspectionRequest}
             />
