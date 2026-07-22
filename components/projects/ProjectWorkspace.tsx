@@ -6225,12 +6225,23 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     printDailyReportsAsPdf(project, selectedReports);
   }
 
+  function openProjectDocumentTab(tabKey: ProjectDocumentTabKey) {
+    setActiveTab(tabKey);
+    setIsNewDocumentMenuOpen(false);
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById("project-document-manager")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   return (
     <section>
       <div className="mb-8">
         <DailyReportSection
           project={project}
           refreshKey={dailyReportRefreshKey}
+          onOpenDocumentTab={openProjectDocumentTab}
           onReportsChange={refreshDailyReportDocuments}
         />
       </div>
@@ -8196,10 +8207,12 @@ function ProjectComingSoonPage({
 }
 
 function DailyReportSection({
+  onOpenDocumentTab,
   onReportsChange,
   project,
   refreshKey = 0
 }: {
+  onOpenDocumentTab?: (tabKey: ProjectDocumentTabKey) => void;
   onReportsChange?: () => void;
   project: WorkspaceProject;
   refreshKey?: number;
@@ -8323,13 +8336,6 @@ function DailyReportSection({
     });
     setEditingReportId(nextReport.id);
     setIsDocumentMenuOpen(false);
-  }
-
-  function openDocumentManager() {
-    setIsDocumentMenuOpen(false);
-    document
-      .getElementById("project-document-manager")
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function updateSelectedReport(
@@ -8502,28 +8508,25 @@ function DailyReportSection({
               <Plus size={17} aria-hidden />
             </button>
             {isDocumentMenuOpen ? (
-              <div className="absolute right-0 top-11 z-10 w-40 overflow-hidden rounded-[8px] border border-[#ebebeb] bg-white shadow-[0_8px_24px_rgba(0,0,0,0.08)]">
-                <button
-                  type="button"
-                  className="block w-full px-3 py-2 text-left text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
-                  onClick={openDailyReportForSelectedDate}
-                >
-                  공사일보
-                </button>
-                <button
-                  type="button"
-                  className="block w-full px-3 py-2 text-left text-sm font-medium text-[#8f8f8f]"
-                  disabled
-                >
-                  검측요청서
-                </button>
-                <button
-                  type="button"
-                  className="block w-full px-3 py-2 text-left text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
-                  onClick={openDocumentManager}
-                >
-                  문서관리
-                </button>
+              <div className="absolute right-0 top-11 z-10 w-60 overflow-hidden rounded-[8px] border border-[#ebebeb] bg-white py-1 shadow-[0_8px_24px_rgba(0,0,0,0.08)]">
+                {projectDocumentTabs.map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    className="block w-full px-3 py-2 text-left text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
+                    onClick={() => {
+                      if (tab.key === "daily-report") {
+                        openDailyReportForSelectedDate();
+                        return;
+                      }
+
+                      setIsDocumentMenuOpen(false);
+                      onOpenDocumentTab?.(tab.key);
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
             ) : null}
           </div>
