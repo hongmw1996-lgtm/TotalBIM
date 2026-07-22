@@ -6042,7 +6042,8 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
 
   function createStoredProjectDocument(
     documentType: Exclude<ProjectDocumentTabKey, "daily-report">,
-    inspectionTemplateKey: InspectionRequestTemplateKey = "steel-beam"
+    inspectionTemplateKey: InspectionRequestTemplateKey = "steel-beam",
+    documentDate = getTodayInputValue()
   ) {
     const documentMeta = projectDocumentTabs.find(
       (tab) => tab.key === documentType
@@ -6052,23 +6053,22 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
       return;
     }
 
-    const today = getTodayInputValue();
     const inspectionTemplate = getInspectionRequestTemplate(inspectionTemplateKey);
     const title =
       documentType === "inspection-request"
-        ? `${formatKoreanDate(today)} ${inspectionTemplate.label} 검측요청서`
-        : `${formatKoreanDate(today)} ${documentMeta.label}`;
+        ? `${formatKoreanDate(documentDate)} ${inspectionTemplate.label} 검측요청서`
+        : `${formatKoreanDate(documentDate)} ${documentMeta.label}`;
     const nextDocument: StoredProjectDocument = {
       id: crypto.randomUUID(),
       projectId: project.id,
       documentType,
       title,
-      date: today,
+      date: documentDate,
       inspectionRequest:
         documentType === "inspection-request"
           ? createInspectionRequestDocumentData(
               project,
-              today,
+              documentDate,
               title,
               inspectionTemplateKey
             )
@@ -6240,6 +6240,17 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
       <div className="mb-8">
         <DailyReportSection
           project={project}
+          onCreateProjectDocument={(
+            documentType,
+            documentDate,
+            inspectionTemplateKey
+          ) =>
+            createStoredProjectDocument(
+              documentType,
+              inspectionTemplateKey,
+              documentDate
+            )
+          }
           refreshKey={dailyReportRefreshKey}
           onOpenDocumentTab={openProjectDocumentTab}
           onReportsChange={refreshDailyReportDocuments}
@@ -8207,11 +8218,17 @@ function ProjectComingSoonPage({
 }
 
 function DailyReportSection({
+  onCreateProjectDocument,
   onOpenDocumentTab,
   onReportsChange,
   project,
   refreshKey = 0
 }: {
+  onCreateProjectDocument?: (
+    documentType: Exclude<ProjectDocumentTabKey, "daily-report">,
+    documentDate: string,
+    inspectionTemplateKey?: InspectionRequestTemplateKey
+  ) => void;
   onOpenDocumentTab?: (tabKey: ProjectDocumentTabKey) => void;
   onReportsChange?: () => void;
   project: WorkspaceProject;
@@ -8224,6 +8241,8 @@ function DailyReportSection({
   const [selectedDate, setSelectedDate] = useState(getTodayInputValue());
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [isDocumentMenuOpen, setIsDocumentMenuOpen] = useState(false);
+  const [isInspectionTemplateMenuOpen, setIsInspectionTemplateMenuOpen] =
+    useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() =>
     getTodayInputValue().slice(0, 7)
   );
@@ -8292,6 +8311,7 @@ function DailyReportSection({
   function selectCalendarDate(reportDate: string) {
     setSelectedDate(reportDate);
     setIsDocumentMenuOpen(false);
+    setIsInspectionTemplateMenuOpen(false);
 
     if (reportDate.slice(0, 7) !== calendarMonth) {
       setCalendarMonth(reportDate.slice(0, 7));
@@ -8315,6 +8335,7 @@ function DailyReportSection({
       );
       setEditingReportId(existingReport.id);
       setIsDocumentMenuOpen(false);
+      setIsInspectionTemplateMenuOpen(false);
       return;
     }
 
@@ -8336,6 +8357,7 @@ function DailyReportSection({
     });
     setEditingReportId(nextReport.id);
     setIsDocumentMenuOpen(false);
+    setIsInspectionTemplateMenuOpen(false);
   }
 
   function updateSelectedReport(
@@ -8503,30 +8525,66 @@ function DailyReportSection({
               type="button"
               className="inline-flex size-9 shrink-0 items-center justify-center rounded-[6px] border border-[#ebebeb] bg-white text-[#171717] transition hover:bg-[#f6f6f6]"
               aria-label={`${formatKoreanDate(selectedDate)} 문서 추가`}
-              onClick={() => setIsDocumentMenuOpen((value) => !value)}
+              onClick={() => {
+                setIsDocumentMenuOpen((value) => {
+                  const nextValue = !value;
+
+                  if (!nextValue) {
+                    setIsInspectionTemplateMenuOpen(false);
+                  }
+
+                  return nextValue;
+                });
+              }}
             >
               <Plus size={17} aria-hidden />
             </button>
             {isDocumentMenuOpen ? (
               <div className="absolute right-0 top-11 z-10 w-60 overflow-hidden rounded-[8px] border border-[#ebebeb] bg-white py-1 shadow-[0_8px_24px_rgba(0,0,0,0.08)]">
-                {projectDocumentTabs.map((tab) => (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    className="block w-full px-3 py-2 text-left text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
-                    onClick={() => {
-                      if (tab.key === "daily-report") {
-                        openDailyReportForSelectedDate();
-                        return;
-                      }
+                {isInspectionTemplateMenuOpen
+                  ? inspectionRequestTemplates.map((template) => (
+                      <button
+                        key={template.key}
+                        type="button"
+                        className="block w-full px-3 py-2 text-left text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
+                        onClick={() => {
+                          setIsInspectionTemplateMenuOpen(false);
+                          setIsDocumentMenuOpen(false);
+                          onCreateProjectDocument?.(
+                            "inspection-request",
+                            selectedDate,
+                            template.key
+                          );
+                        }}
+                      >
+                        {template.label}
+                      </button>
+                    ))
+                  : projectDocumentTabs.map((tab) => (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        className="block w-full px-3 py-2 text-left text-sm font-medium text-[#171717] transition hover:bg-[#f6f6f6]"
+                        onClick={() => {
+                          if (tab.key === "daily-report") {
+                            openDailyReportForSelectedDate();
+                            return;
+                          }
 
-                      setIsDocumentMenuOpen(false);
-                      onOpenDocumentTab?.(tab.key);
-                    }}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+                          if (tab.key === "inspection-request") {
+                            setIsInspectionTemplateMenuOpen(true);
+                            return;
+                          }
+
+                          setIsDocumentMenuOpen(false);
+                          setIsInspectionTemplateMenuOpen(false);
+                          onCreateProjectDocument?.(tab.key, selectedDate);
+                          onOpenDocumentTab?.(tab.key);
+                        }}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
               </div>
             ) : null}
           </div>
