@@ -945,6 +945,484 @@ function renderPrintTable(
   `;
 }
 
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = sanitizeFileName(fileName);
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function createPdfBlob(bytes: Uint8Array) {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+
+  new Uint8Array(buffer).set(bytes);
+
+  return new Blob([buffer], { type: "application/pdf" });
+}
+
+async function createPdfWriter(title: string) {
+  const [{ PDFDocument, rgb }, fontkitModule] = await Promise.all([
+    import("pdf-lib"),
+    import("@pdf-lib/fontkit")
+  ]);
+  const pdfDoc = await PDFDocument.create();
+  const fontkit = fontkitModule.default ?? fontkitModule;
+
+  pdfDoc.registerFontkit(fontkit);
+
+  const fontBytes = await fetch("/fonts/NotoSansCJKkr-Regular.otf").then(
+    (response) => {
+      if (!response.ok) {
+        throw new Error("PDF 한글 폰트를 불러오지 못했습니다.");
+      }
+
+      return response.arrayBuffer();
+    }
+  );
+  const font = await pdfDoc.embedFont(fontBytes, { subset: true });
+  const pageSize: [number, number] = [595.28, 841.89];
+  const margin = 42;
+  let page = pdfDoc.addPage(pageSize);
+  let y = page.getHeight() - margin;
+
+  function addPage() {
+    page = pdfDoc.addPage(pageSize);
+    y = page.getHeight() - margin;
+  }
+
+  function ensureSpace(height: number) {
+    if (y - height < margin) {
+      addPage();
+    }
+  }
+
+  function textWidth(text: string, size: number) {
+    return font.widthOfTextAtSize(text, size);
+  }
+
+  function wrapText(text: string, size: number, maxWidth: number) {
+    const normalizedText = text || "-";
+    const lines: string[] = [];
+
+    for (const paragraph of normalizedText.split("\n")) {
+      let line = "";
+
+      for (const char of paragraph || "-") {
+        const nextLine = line + char;
+
+        if (textWidth(nextLine, size) <= maxWidth || !line) {
+          line = nextLine;
+        } else {
+          lines.push(line);
+          line = char;
+        }
+      }
+
+      lines.push(line || "-");
+    }
+
+    return lines;
+  }
+
+  function drawText(
+    text: string,
+    x: number,
+    baseline: number,
+    size = 10,
+    color = rgb(0.09, 0.09, 0.09)
+  ) {
+    page.drawText(text || "-", { x, y: baseline, size, font, color });
+  }
+
+  function drawParagraph(text: string, options: { size?: number; x?: number; width?: number } = {}) {
+    const size = options.size ?? 10;
+    const x = options.x ?? margin;
+    const width = options.width ?? page.getWidth() - margin * 2;
+    const lines = wrapText(text, size, width);
+    const lineHeight = size + 5;
+
+    ensureSpace(lines.length * lineHeight + 6);
+
+    for (const line of lines) {
+      drawText(line, x, y - size, size);
+      y -= lineHeight;
+    }
+  }
+
+  function drawHeading(text: string, size = 16) {
+    ensureSpace(size + 18);
+    drawText(text, margin, y - size, size);
+    y -= size + 14;
+  }
+
+  function drawDocumentTitle(text: string, subtitle?: string) {
+    const width = page.getWidth();
+
+    ensureSpace(70);
+    page.drawText(text, {
+      x: (width - textWidth(text, 18)) / 2,
+      y: y - 18,
+      size: 18,
+      font,
+      color: rgb(0.09, 0.09, 0.09)
+    });
+    y -= 28;
+
+    if (subtitle) {
+      page.drawText(subtitle, {
+        x: (width - textWidth(subtitle, 10)) / 2,
+        y: y - 10,
+        size: 10,
+        font,
+        color: rgb(0.3, 0.3, 0.3)
+      });
+      y -= 18;
+    }
+
+    page.drawLine({
+      start: { x: margin, y },
+      end: { x: width - margin, y },
+      thickness: 1,
+      color: rgb(0.09, 0.09, 0.09)
+    });
+    y -= 18;
+  }
+
+  function drawKeyValueGrid(rows: Array<[string, string]>, columns = 2) {
+    const gap = 8;
+    const width = page.getWidth() - margin * 2;
+    const cellWidth = (width - gap * (columns - 1)) / columns;
+    const labelWidth = Math.min(88, cellWidth * 0.38);
+    const rowHeight = 26;
+
+    for (let index = 0; index < rows.length; index += columns) {
+      ensureSpace(rowHeight + 4);
+
+      for (let column = 0; column < columns; column += 1) {
+        const row = rows[index + column];
+
+        if (!row) {
+          continue;
+        }
+
+        const x = margin + column * (cellWidth + gap);
+        const [label, value] = row;
+
+        page.drawRectangle({
+          x,
+          y: y - rowHeight,
+          width: cellWidth,
+          height: rowHeight,
+          borderColor: rgb(0.86, 0.86, 0.86),
+          borderWidth: 1,
+          color: rgb(0.99, 0.99, 0.99)
+        });
+        page.drawLine({
+          start: { x: x + labelWidth, y },
+          end: { x: x + labelWidth, y: y - rowHeight },
+          thickness: 1,
+          color: rgb(0.9, 0.9, 0.9)
+        });
+        drawText(label, x + 8, y - 17, 9, rgb(0.28, 0.28, 0.28));
+        drawText(value || "-", x + labelWidth + 8, y - 17, 9);
+      }
+
+      y -= rowHeight + 6;
+    }
+  }
+
+  function drawTable(headers: string[], rows: string[][], emptyText: string) {
+    if (rows.length === 0) {
+      drawParagraph(emptyText, { size: 9 });
+      y -= 4;
+      return;
+    }
+
+    const width = page.getWidth() - margin * 2;
+    const columnWidth = width / headers.length;
+    const headerHeight = 24;
+    const rowHeight = 23;
+
+    ensureSpace(headerHeight + rowHeight);
+    page.drawRectangle({
+      x: margin,
+      y: y - headerHeight,
+      width,
+      height: headerHeight,
+      borderColor: rgb(0.86, 0.86, 0.86),
+      borderWidth: 1,
+      color: rgb(0.98, 0.98, 0.98)
+    });
+    headers.forEach((header, index) => {
+      const x = margin + columnWidth * index;
+
+      if (index > 0) {
+        page.drawLine({
+          start: { x, y },
+          end: { x, y: y - headerHeight },
+          thickness: 1,
+          color: rgb(0.9, 0.9, 0.9)
+        });
+      }
+
+      drawText(header, x + 6, y - 16, 8, rgb(0.28, 0.28, 0.28));
+    });
+    y -= headerHeight;
+
+    for (const row of rows) {
+      ensureSpace(rowHeight);
+      page.drawRectangle({
+        x: margin,
+        y: y - rowHeight,
+        width,
+        height: rowHeight,
+        borderColor: rgb(0.92, 0.92, 0.92),
+        borderWidth: 1
+      });
+      row.forEach((cell, index) => {
+        const x = margin + columnWidth * index;
+
+        if (index > 0) {
+          page.drawLine({
+            start: { x, y },
+            end: { x, y: y - rowHeight },
+            thickness: 1,
+            color: rgb(0.94, 0.94, 0.94)
+          });
+        }
+
+        const [line] = wrapText(cell || "-", 8, columnWidth - 12);
+        drawText(line, x + 6, y - 15, 8);
+      });
+      y -= rowHeight;
+    }
+
+    y -= 10;
+  }
+
+  function drawPageFooter() {
+    const pages = pdfDoc.getPages();
+
+    pages.forEach((pdfPage, index) => {
+      const footer = `${title} · ${index + 1} / ${pages.length}`;
+
+      pdfPage.drawText(footer, {
+        x: margin,
+        y: 22,
+        size: 8,
+        font,
+        color: rgb(0.45, 0.45, 0.45)
+      });
+    });
+  }
+
+  async function saveBytes() {
+    drawPageFooter();
+    return pdfDoc.save();
+  }
+
+  return {
+    drawDocumentTitle,
+    drawHeading,
+    drawKeyValueGrid,
+    drawParagraph,
+    drawTable,
+    saveBytes
+  };
+}
+
+async function downloadDailyReportsPdf(
+  project: WorkspaceProject,
+  reports: ConstructionDailyReport[]
+) {
+  if (reports.length === 0) {
+    window.alert("PDF로 저장할 공사일보가 없습니다.");
+    return;
+  }
+
+  const sortedReports = [...reports].sort((left, right) =>
+    left.reportDate.localeCompare(right.reportDate)
+  );
+  const title =
+    sortedReports.length === 1
+      ? `${sortedReports[0].reportDate} 공사일보`
+      : `${sortedReports[0].reportDate}~${
+          sortedReports[sortedReports.length - 1].reportDate
+        } 공사일보`;
+  const writer = await createPdfWriter(title);
+
+  for (const report of sortedReports) {
+    const contractorLabor = report.contractorLaborRows.filter(
+      hasAnyDailyReportRowValue
+    );
+    const subcontractorLabor = report.subcontractorLaborRows.filter(
+      hasAnyDailyReportRowValue
+    );
+    const materialRows = report.materialRows.filter(hasAnyDailyReportRowValue);
+    const equipmentRows = report.equipmentRows.filter(hasAnyDailyReportRowValue);
+    const workItemRows = report.workItems
+      .filter((item) => item.today.trim() || item.tomorrow.trim())
+      .map((item) => [item.trade, item.today || "-", item.tomorrow || "-"]);
+
+    writer.drawDocumentTitle("공사일보", formatKoreanDate(report.reportDate));
+    writer.drawKeyValueGrid([
+      ["작성일", report.reportDate],
+      ["현장대리인", report.siteManager],
+      ["날씨", report.weather],
+      ["최저기온", report.lowTemp],
+      ["최고기온", report.highTemp]
+    ]);
+    writer.drawHeading("작업내용", 12);
+    writer.drawTable(
+      ["공종", "금일 작업", "명일 예정"],
+      workItemRows,
+      "작성된 작업내용이 없습니다."
+    );
+    writer.drawHeading("시공사", 12);
+    writer.drawTable(
+      ["공종", "직종", "전일", "금일", "누계"],
+      contractorLabor.map((row) => [
+        row.trade,
+        row.role,
+        row.previous || "0",
+        row.today || "0",
+        row.total || "0"
+      ]),
+      "작성된 시공사 현황이 없습니다."
+    );
+    writer.drawHeading("협력사", 12);
+    writer.drawTable(
+      ["협력사명", "공종", "직종", "전일", "금일", "누계"],
+      subcontractorLabor.map((row) => [
+        row.subcontractorName || "-",
+        row.trade,
+        row.role,
+        row.previous || "0",
+        row.today || "0",
+        row.total || "0"
+      ]),
+      "작성된 협력사 작업자 현황이 없습니다."
+    );
+    writer.drawHeading("자재 입고현황", 12);
+    writer.drawTable(
+      ["공종", "자재명", "규격", "전일", "금일", "누계"],
+      createGroupedQuantityDisplayRows(materialRows),
+      "작성된 자재 입고현황이 없습니다."
+    );
+    writer.drawHeading("장비 현황", 12);
+    writer.drawTable(
+      ["공종", "장비명", "규격", "전일", "금일", "누계"],
+      equipmentRows.map((row) => [
+        row.trade,
+        row.name,
+        row.spec || "-",
+        row.previous || "0",
+        row.today || "0",
+        row.total || "0"
+      ]),
+      "작성된 장비 현황이 없습니다."
+    );
+    writer.drawHeading("특기사항", 12);
+    writer.drawParagraph(report.notes.trim() || "작성된 특기사항이 없습니다.", {
+      size: 9
+    });
+  }
+
+  const bytes = await writer.saveBytes();
+  downloadBlob(createPdfBlob(bytes), `${title}.pdf`);
+}
+
+async function downloadInspectionRequestPdf(
+  project: WorkspaceProject,
+  document: ProjectDocumentListItem,
+  inspectionRequest: InspectionRequestDocumentData
+) {
+  const title = document.title || `${inspectionRequest.inspectionRequestDate} 검측요청서`;
+  const writer = await createPdfWriter(title);
+
+  writer.drawDocumentTitle("검 측 요 청 서");
+  writer.drawKeyValueGrid(
+    [
+      ["번호", inspectionRequest.requestNo],
+      ["수신", inspectionRequest.recipient],
+      ["위치 및 공종", inspectionRequest.locationAndTrade],
+      ["검측 부위", inspectionRequest.inspectionPart],
+      ["검측 요구 일시", inspectionRequest.inspectionRequestDate],
+      ["검측 사항", inspectionRequest.inspectionSummary],
+      ["첨부", inspectionRequest.attachmentText]
+    ],
+    1
+  );
+  writer.drawParagraph(
+    "다음과 같은 세부공종에 대하여 검측요청하오니 검사 후 승인하여 주시기 바랍니다.",
+    { size: 9 }
+  );
+  writer.drawKeyValueGrid(
+    [
+      ["공사명", inspectionRequest.constructionName],
+      ["현장대리인", `${inspectionRequest.siteManager || "-"} (인)`]
+    ],
+    1
+  );
+  writer.drawHeading("검 측 결 과 통 보 서", 12);
+  writer.drawParagraph(
+    `검측요청서 번호 ${inspectionRequest.requestNo || "-"}에 대한 검측결과를 통보합니다.`,
+    { size: 9 }
+  );
+  writer.drawKeyValueGrid(
+    [
+      ["수신", inspectionRequest.resultRecipient],
+      ["검측일자", inspectionRequest.inspectionRequestDate],
+      ["첨부", inspectionRequest.resultAttachmentText],
+      ["총괄 감리 책임자", `${inspectionRequest.supervisingInspector || "-"} (인)`]
+    ],
+    1
+  );
+  writer.drawHeading("검 측 체 크 리 스 트", 12);
+  writer.drawKeyValueGrid(
+    [
+      ["공종 CODE No.", inspectionRequest.requestNo],
+      ["검측일자", inspectionRequest.requestPeriod],
+      ["공종", inspectionRequest.checklist.trade],
+      ["위치 및 부위", inspectionRequest.inspectionPart],
+      ["세부공종", inspectionRequest.checklist.subTrade],
+      ["도면번호", inspectionRequest.checklist.drawingNumber]
+    ],
+    2
+  );
+  writer.drawTable(
+    ["검사항목", "검사기준", "시공자1", "시공자2", "감리자1", "감리자2", "조치"],
+    inspectionRequest.checklist.rows.map((row) => [
+      row.item,
+      row.standard,
+      row.contractorFirst ?? "",
+      row.contractorSecond ?? "",
+      row.supervisorFirst ?? "",
+      row.supervisorSecond ?? "",
+      row.action ?? ""
+    ]),
+    "작성된 검측 체크리스트가 없습니다."
+  );
+  writer.drawKeyValueGrid(
+    [
+      ["시공자 점검", "성명 (인)"],
+      ["감리원 검측", "성명 (인)"],
+      ["시공자 재점검", "성명 (인)"],
+      ["감리원 재검측", "성명 (인)"]
+    ],
+    2
+  );
+  writer.drawParagraph("※ 검측사진첨부.", { size: 8 });
+
+  const bytes = await writer.saveBytes();
+  downloadBlob(createPdfBlob(bytes), `${title}.pdf`);
+}
+
 function renderDailyReportPrintHtml(report: ConstructionDailyReport) {
   const contractorLabor = report.contractorLaborRows.filter(hasAnyDailyReportRowValue);
   const subcontractorLabor = report.subcontractorLaborRows.filter(
@@ -6437,7 +6915,11 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
       (report) => report.reportDate >= fromDate && report.reportDate <= toDate
     );
 
-    printDailyReportsAsPdf(project, selectedReports);
+    void downloadDailyReportsPdf(project, selectedReports).catch((error) => {
+      window.alert(
+        error instanceof Error ? error.message : "PDF 저장에 실패했습니다."
+      );
+    });
   }
 
   function openProjectDocumentTab(tabKey: ProjectDocumentTabKey) {
@@ -6843,6 +7325,20 @@ function DocumentPreviewDialog({
     }
   }
 
+  function downloadCurrentDocumentPdf() {
+    const downloadPromise = draftReport
+      ? downloadDailyReportsPdf(project, [draftReport])
+      : printableInspectionRequest
+        ? downloadInspectionRequestPdf(project, document, printableInspectionRequest)
+        : Promise.resolve();
+
+    void downloadPromise.catch((error) => {
+      window.alert(
+        error instanceof Error ? error.message : "PDF 저장에 실패했습니다."
+      );
+    });
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
       <div className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-[10px] bg-white shadow-2xl">
@@ -6876,7 +7372,7 @@ function DocumentPreviewDialog({
                     <button
                       type="button"
                       className={secondaryButtonClass}
-                      onClick={printCurrentDocument}
+                      onClick={downloadCurrentDocumentPdf}
                     >
                       <Download size={15} aria-hidden />
                       PDF 저장
@@ -6925,7 +7421,7 @@ function DocumentPreviewDialog({
                     <button
                       type="button"
                       className={secondaryButtonClass}
-                      onClick={printCurrentDocument}
+                      onClick={downloadCurrentDocumentPdf}
                     >
                       <Download size={15} aria-hidden />
                       PDF 저장
@@ -10338,7 +10834,15 @@ function DailyReportEditorDialog({
             <button
               type="button"
               className={secondaryButtonClass}
-              onClick={() => printDailyReportsAsPdf(project, [report])}
+              onClick={() =>
+                void downloadDailyReportsPdf(project, [report]).catch((error) => {
+                  window.alert(
+                    error instanceof Error
+                      ? error.message
+                      : "PDF 저장에 실패했습니다."
+                  );
+                })
+              }
             >
               <Download size={15} aria-hidden />
               PDF 저장
