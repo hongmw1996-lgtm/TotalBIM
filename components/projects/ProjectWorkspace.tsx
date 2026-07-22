@@ -5628,6 +5628,11 @@ function ProjectSubcontractorsPage({ project }: { project: WorkspaceProject }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isReadingFiles, setIsReadingFiles] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [selectedSubcontractorId, setSelectedSubcontractorId] = useState<
+    string | null
+  >(null);
+  const selectedSubcontractor =
+    subcontractors.find((item) => item.id === selectedSubcontractorId) ?? null;
 
   function persist(nextProjectSubcontractors: ProjectSubcontractor[]) {
     const otherSubcontractors = readProjectSubcontractors().filter(
@@ -5670,6 +5675,7 @@ function ProjectSubcontractorsPage({ project }: { project: WorkspaceProject }) {
   function editSubcontractor(subcontractor: ProjectSubcontractor) {
     setEditingId(subcontractor.id);
     setIsFormOpen(true);
+    setSelectedSubcontractorId(null);
     setDraft({
       companyName: subcontractor.companyName,
       managerNames:
@@ -5768,6 +5774,10 @@ function ProjectSubcontractorsPage({ project }: { project: WorkspaceProject }) {
 
   function deleteSubcontractor(subcontractorId: string) {
     persist(subcontractors.filter((item) => item.id !== subcontractorId));
+
+    if (selectedSubcontractorId === subcontractorId) {
+      setSelectedSubcontractorId(null);
+    }
 
     if (editingId === subcontractorId) {
       closeSubcontractorForm();
@@ -6005,115 +6015,127 @@ function ProjectSubcontractorsPage({ project }: { project: WorkspaceProject }) {
             </p>
           </div>
           {subcontractors.length > 0 ? (
-            <div className="divide-y divide-[#ebebeb]">
-              {subcontractors.map((subcontractor) => (
-                <article key={subcontractor.id} className="p-5">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h4 className="text-lg font-semibold text-[#171717]">
-                          {subcontractor.companyName}
-                        </h4>
-                        {subcontractor.trade ? (
-                          <span className="rounded-full border border-[#d8eadf] bg-[#f4fbf6] px-2.5 py-1 text-xs font-semibold text-[#25884f]">
-                            {subcontractor.trade}
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-1 text-sm text-[#4d4d4d]">
-                        관리자{" "}
-                        {subcontractor.managerNames.length > 0
-                          ? subcontractor.managerNames.join(", ")
-                          : subcontractor.managerName || "-"}{" "}
-                        · 연락처{" "}
-                        {subcontractor.phone || "-"}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 gap-2">
-                      <button
-                        type="button"
-                        className={secondaryButtonClass}
-                        onClick={() => editSubcontractor(subcontractor)}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[940px] border-collapse text-sm">
+                <thead className="bg-[#fcfcfc] text-left text-xs font-semibold text-[#6f6f6f]">
+                  <tr>
+                    <th className="border-b border-[#ebebeb] px-4 py-3">
+                      협력사명
+                    </th>
+                    <th className="border-b border-[#ebebeb] px-4 py-3">
+                      공종
+                    </th>
+                    <th className="border-b border-[#ebebeb] px-4 py-3">
+                      관리자
+                    </th>
+                    <th className="border-b border-[#ebebeb] px-4 py-3">
+                      연락처
+                    </th>
+                    <th className="border-b border-[#ebebeb] px-4 py-3">
+                      계약금액
+                    </th>
+                    <th className="border-b border-[#ebebeb] px-4 py-3">
+                      계약기간
+                    </th>
+                    <th className="border-b border-[#ebebeb] px-4 py-3">
+                      서류
+                    </th>
+                    <th className="border-b border-[#ebebeb] px-4 py-3 text-right">
+                      관리
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#f1f1f1]">
+                  {subcontractors.map((subcontractor) => {
+                    const managerDisplay =
+                      subcontractor.managerNames.length > 0
+                        ? subcontractor.managerNames.join(", ")
+                        : subcontractor.managerName || "-";
+                    const periodDisplay =
+                      subcontractor.contractStartDate ||
+                      subcontractor.contractEndDate
+                        ? `${subcontractor.contractStartDate || "-"} ~ ${
+                            subcontractor.contractEndDate || "-"
+                          }`
+                        : "-";
+
+                    return (
+                      <tr
+                        key={subcontractor.id}
+                        role="button"
+                        tabIndex={0}
+                        className="cursor-pointer bg-white transition hover:bg-[#fcfcfc] focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#171717]"
+                        onClick={() => setSelectedSubcontractorId(subcontractor.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setSelectedSubcontractorId(subcontractor.id);
+                          }
+                        }}
                       >
-                        수정
-                      </button>
-                      <button
-                        type="button"
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-[6px] border border-[#f0d6d6] bg-white px-4 text-sm font-medium text-[#b42318] transition hover:bg-[#fff7f7]"
-                        onClick={() => deleteSubcontractor(subcontractor.id)}
-                      >
-                        삭제
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid gap-3 md:grid-cols-3">
-                    <SubcontractorInfoPill
-                      label="공사금액"
-                      value={
-                        subcontractor.contractAmount
-                          ? `${subcontractor.contractAmount}원`
-                          : "-"
-                      }
-                    />
-                    <SubcontractorInfoPill
-                      label="계약기간"
-                      value={
-                        subcontractor.contractStartDate ||
-                        subcontractor.contractEndDate
-                          ? `${subcontractor.contractStartDate || "-"} ~ ${
-                              subcontractor.contractEndDate || "-"
-                            }`
-                          : "-"
-                      }
-                    />
-                    <SubcontractorInfoPill
-                      label="이메일"
-                      value={subcontractor.email || "-"}
-                    />
-                  </div>
-
-                  {subcontractor.notes ? (
-                    <p className="mt-4 rounded-[6px] border border-[#ebebeb] bg-[#fcfcfc] px-3 py-2 text-sm text-[#4d4d4d]">
-                      {subcontractor.notes}
-                    </p>
-                  ) : null}
-
-                  <div className="mt-4">
-                    <p className="mb-2 text-sm font-semibold text-[#171717]">
-                      첨부 서류 {subcontractor.documents.length}개
-                    </p>
-                    {subcontractor.documents.length > 0 ? (
-                      <div className="grid gap-2 md:grid-cols-2">
-                        {subcontractor.documents.map((document) => (
-                          <a
-                            key={document.id}
-                            href={document.dataUrl}
-                            download={document.fileName}
-                            className="flex items-center gap-3 rounded-[6px] border border-[#ebebeb] bg-[#fcfcfc] px-3 py-2 text-sm transition hover:border-[#171717] hover:bg-white"
-                          >
-                            <Paperclip
-                              size={15}
-                              className="shrink-0 text-[#8f8f8f]"
-                              aria-hidden
-                            />
-                            <span className="min-w-0 flex-1 truncate font-medium text-[#171717]">
-                              {document.fileName}
+                        <td className="px-4 py-4">
+                          <p className="font-semibold text-[#171717]">
+                            {subcontractor.companyName}
+                          </p>
+                          <p className="mt-1 truncate text-xs text-[#8f8f8f]">
+                            {subcontractor.email || "이메일 미입력"}
+                          </p>
+                        </td>
+                        <td className="px-4 py-4">
+                          {subcontractor.trade ? (
+                            <span className="rounded-full border border-[#d8eadf] bg-[#f4fbf6] px-2.5 py-1 text-xs font-semibold text-[#25884f]">
+                              {subcontractor.trade}
                             </span>
-                            <span className="shrink-0 text-xs text-[#8f8f8f]">
-                              {formatBytes(document.fileSize)}
-                            </span>
-                          </a>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="rounded-[6px] border border-dashed border-[#dedede] bg-[#fcfcfc] px-3 py-3 text-sm text-[#8f8f8f]">
-                        첨부된 서류가 없습니다.
-                      </p>
-                    )}
-                  </div>
-                </article>
-              ))}
+                          ) : (
+                            <span className="text-[#8f8f8f]">-</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-4 text-[#4d4d4d]">
+                          {managerDisplay}
+                        </td>
+                        <td className="px-4 py-4 text-[#4d4d4d]">
+                          {subcontractor.phone || "-"}
+                        </td>
+                        <td className="px-4 py-4 font-semibold text-[#171717]">
+                          {subcontractor.contractAmount
+                            ? `${subcontractor.contractAmount}원`
+                            : "-"}
+                        </td>
+                        <td className="px-4 py-4 text-[#4d4d4d]">
+                          {periodDisplay}
+                        </td>
+                        <td className="px-4 py-4 text-[#4d4d4d]">
+                          {subcontractor.documents.length}개
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              className={secondaryButtonClass}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                editSubcontractor(subcontractor);
+                              }}
+                            >
+                              수정
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex h-10 items-center justify-center gap-2 rounded-[6px] border border-[#f0d6d6] bg-white px-4 text-sm font-medium text-[#b42318] transition hover:bg-[#fff7f7]"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                deleteSubcontractor(subcontractor.id);
+                              }}
+                            >
+                              삭제
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           ) : (
             <div className="flex min-h-[420px] items-center justify-center p-8 text-center">
@@ -6130,7 +6152,159 @@ function ProjectSubcontractorsPage({ project }: { project: WorkspaceProject }) {
           )}
         </section>
       </div>
+
+      {selectedSubcontractor ? (
+        <SubcontractorDetailDialog
+          subcontractor={selectedSubcontractor}
+          onClose={() => setSelectedSubcontractorId(null)}
+          onDelete={() => deleteSubcontractor(selectedSubcontractor.id)}
+          onEdit={() => editSubcontractor(selectedSubcontractor)}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function SubcontractorDetailDialog({
+  onClose,
+  onDelete,
+  onEdit,
+  subcontractor
+}: {
+  onClose: () => void;
+  onDelete: () => void;
+  onEdit: () => void;
+  subcontractor: ProjectSubcontractor;
+}) {
+  const managerDisplay =
+    subcontractor.managerNames.length > 0
+      ? subcontractor.managerNames.join(", ")
+      : subcontractor.managerName || "-";
+  const periodDisplay =
+    subcontractor.contractStartDate || subcontractor.contractEndDate
+      ? `${subcontractor.contractStartDate || "-"} ~ ${
+          subcontractor.contractEndDate || "-"
+        }`
+      : "-";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="subcontractor-detail-title"
+    >
+      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[10px] bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-[#ebebeb] px-6 py-4">
+          <div className="min-w-0">
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#8f8f8f]">
+              Subcontractor
+            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <h3
+                id="subcontractor-detail-title"
+                className="truncate text-xl font-semibold tracking-[-0.03em]"
+              >
+                {subcontractor.companyName}
+              </h3>
+              {subcontractor.trade ? (
+                <span className="rounded-full border border-[#d8eadf] bg-[#f4fbf6] px-2.5 py-1 text-xs font-semibold text-[#25884f]">
+                  {subcontractor.trade}
+                </span>
+              ) : null}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="button" className={secondaryButtonClass} onClick={onEdit}>
+              수정
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-[6px] border border-[#f0d6d6] bg-white px-4 text-sm font-medium text-[#b42318] transition hover:bg-[#fff7f7]"
+              onClick={onDelete}
+            >
+              삭제
+            </button>
+            <button
+              type="button"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-[6px] text-[#8f8f8f] transition hover:bg-[#f6f6f6] hover:text-[#171717]"
+              aria-label="협력사 상세 닫기"
+              onClick={onClose}
+            >
+              <X size={18} aria-hidden />
+            </button>
+          </div>
+        </div>
+
+        <div className="min-h-0 overflow-y-auto bg-[#f7f7f7] p-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <SubcontractorInfoPill label="관리자" value={managerDisplay} />
+            <SubcontractorInfoPill
+              label="연락처"
+              value={subcontractor.phone || "-"}
+            />
+            <SubcontractorInfoPill
+              label="이메일"
+              value={subcontractor.email || "-"}
+            />
+            <SubcontractorInfoPill
+              label="공사금액"
+              value={
+                subcontractor.contractAmount
+                  ? `${subcontractor.contractAmount}원`
+                  : "-"
+              }
+            />
+            <SubcontractorInfoPill label="계약기간" value={periodDisplay} />
+            <SubcontractorInfoPill
+              label="첨부 서류"
+              value={`${subcontractor.documents.length}개`}
+            />
+          </div>
+
+          <section className="mt-4 rounded-[8px] border border-[#ebebeb] bg-white p-4">
+            <h4 className="text-sm font-semibold text-[#171717]">비고</h4>
+            <p className="mt-2 min-h-14 whitespace-pre-wrap rounded-[6px] border border-[#ebebeb] bg-[#fcfcfc] px-3 py-2 text-sm text-[#4d4d4d]">
+              {subcontractor.notes || "입력된 비고가 없습니다."}
+            </p>
+          </section>
+
+          <section className="mt-4 rounded-[8px] border border-[#ebebeb] bg-white p-4">
+            <h4 className="text-sm font-semibold text-[#171717]">
+              첨부 서류 {subcontractor.documents.length}개
+            </h4>
+            {subcontractor.documents.length > 0 ? (
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {subcontractor.documents.map((document) => (
+                  <a
+                    key={document.id}
+                    href={document.dataUrl}
+                    download={document.fileName}
+                    className="flex items-center gap-3 rounded-[6px] border border-[#ebebeb] bg-[#fcfcfc] px-3 py-2 text-sm transition hover:border-[#171717] hover:bg-white"
+                  >
+                    <Paperclip
+                      size={15}
+                      className="shrink-0 text-[#8f8f8f]"
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1 truncate font-medium text-[#171717]">
+                      {document.fileName}
+                    </span>
+                    <span className="shrink-0 text-xs text-[#8f8f8f]">
+                      {formatBytes(document.fileSize)}
+                    </span>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 rounded-[6px] border border-dashed border-[#dedede] bg-[#fcfcfc] px-3 py-4 text-center text-sm text-[#8f8f8f]">
+                첨부된 서류가 없습니다.
+              </p>
+            )}
+          </section>
+        </div>
+      </div>
+    </div>
   );
 }
 
