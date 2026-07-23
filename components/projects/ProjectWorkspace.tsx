@@ -6820,6 +6820,17 @@ function getInspectionRequestData(
   );
 }
 
+function getCalendarDocumentTitle(document: ProjectDocumentListItem) {
+  if (document.documentType === "daily-report") {
+    return "공사일보";
+  }
+
+  return document.title
+    .replace(/^\d{4}년\s+\d{1,2}월\s+\d{1,2}일\s+/, "")
+    .replace(/^\d{4}-\d{2}-\d{2}\s+/, "")
+    .trim();
+}
+
 function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
   const [activeTab, setActiveTab] =
     useState<ProjectDocumentTabKey>("daily-report");
@@ -6842,6 +6853,9 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
   const activeStoredDocuments = documents.filter(
     (document) =>
       document.projectId === project.id && document.documentType === activeTab
+  );
+  const calendarStoredDocuments = documents.filter(
+    (document) => document.projectId === project.id
   );
   const activeDocumentCount =
     activeTab === "daily-report"
@@ -7110,6 +7124,7 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
     <section>
       <div className="mb-8">
         <DailyReportSection
+          documents={calendarStoredDocuments}
           project={project}
           onCreateProjectDocument={(
             documentType,
@@ -9140,12 +9155,14 @@ function ProjectComingSoonPage({
 }
 
 function DailyReportSection({
+  documents,
   onCreateProjectDocument,
   onOpenDocumentTab,
   onReportsChange,
   project,
   refreshKey = 0
 }: {
+  documents?: StoredProjectDocument[];
   onCreateProjectDocument?: (
     documentType: Exclude<ProjectDocumentTabKey, "daily-report">,
     documentDate: string,
@@ -9184,11 +9201,25 @@ function DailyReportSection({
       .toISOString()
       .slice(0, 10);
 
+    const dailyReportDocument = reports.find(
+      (report) => report.reportDate === dateValue
+    );
+    const storedDocuments = (documents ?? []).filter(
+      (document) => document.date === dateValue
+    );
+    const dayDocuments: ProjectDocumentListItem[] = [
+      ...(dailyReportDocument
+        ? [createDailyReportDocument(dailyReportDocument)]
+        : []),
+      ...storedDocuments
+    ];
+
     return {
       date,
       dateValue,
+      documents: dayDocuments,
       isCurrentMonth: dateValue.slice(0, 7) === calendarMonth,
-      report: reports.find((report) => report.reportDate === dateValue) ?? null
+      report: dailyReportDocument ?? null
     };
   });
 
@@ -9368,7 +9399,9 @@ function DailyReportSection({
             </button>
             <div className="text-center">
               <p className="text-lg font-semibold">{calendarMonth}</p>
-              <p className="text-xs text-[#8f8f8f]">{reports.length}개 문서</p>
+              <p className="text-xs text-[#8f8f8f]">
+                {reports.length + (documents?.length ?? 0)}개 문서
+              </p>
             </div>
             <button
               type="button"
@@ -9395,7 +9428,7 @@ function DailyReportSection({
                 <button
                   key={day.dateValue}
                   type="button"
-                  className={`min-h-[104px] border-b border-r border-[#ebebeb] p-2 text-left transition ${
+                  className={`min-h-[128px] border-b border-r border-[#ebebeb] p-2 text-left transition ${
                     isSelected
                       ? "bg-[#f6f6f6] ring-1 ring-inset ring-[#171717]"
                       : "bg-white hover:bg-[#fcfcfc]"
@@ -9406,25 +9439,24 @@ function DailyReportSection({
                     <span className="text-sm font-semibold">
                       {day.date.getDate()}
                     </span>
-                    {day.report ? (
+                    {day.documents.length > 0 ? (
                       <span className="rounded-full bg-[#171717] px-2 py-0.5 text-[10px] font-medium text-white">
                         문서
                       </span>
                     ) : null}
                   </div>
-                  {day.report ? (
-                    <div className="mt-3 rounded-[6px] border border-[#ebebeb] bg-[#fcfcfc] p-2">
-                      <p className="truncate text-xs font-semibold text-[#171717]">
-                        공사일보
-                      </p>
-                      <p className="mt-1 truncate text-[11px] text-[#8f8f8f]">
-                        {day.report.weather || "날씨 미입력"} · 작업{" "}
-                        {
-                          day.report.workItems.filter((item) => item.today)
-                            .length
-                        }
-                        건
-                      </p>
+                  {day.documents.length > 0 ? (
+                    <div className="mt-2 grid gap-1">
+                      {day.documents.map((document) => (
+                        <div
+                          key={document.id}
+                          className="rounded-[5px] border border-[#ebebeb] bg-[#fcfcfc] px-2 py-1"
+                        >
+                          <p className="truncate text-xs font-semibold leading-4 text-[#171717]">
+                            {getCalendarDocumentTitle(document)}
+                          </p>
+                        </div>
+                      ))}
                     </div>
                   ) : (
                     <span className="sr-only">문서 없음</span>
