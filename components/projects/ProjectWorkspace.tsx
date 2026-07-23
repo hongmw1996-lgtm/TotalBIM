@@ -7139,6 +7139,7 @@ function ProjectDocumentsPage({ project }: { project: WorkspaceProject }) {
           }
           refreshKey={dailyReportRefreshKey}
           onOpenDocumentTab={openProjectDocumentTab}
+          onOpenProjectDocument={setSelectedDocument}
           onReportsChange={refreshDailyReportDocuments}
         />
       </div>
@@ -9158,6 +9159,7 @@ function DailyReportSection({
   documents,
   onCreateProjectDocument,
   onOpenDocumentTab,
+  onOpenProjectDocument,
   onReportsChange,
   project,
   refreshKey = 0
@@ -9169,6 +9171,7 @@ function DailyReportSection({
     inspectionTemplateKey?: InspectionRequestTemplateKey
   ) => void;
   onOpenDocumentTab?: (tabKey: ProjectDocumentTabKey) => void;
+  onOpenProjectDocument?: (document: ProjectDocumentListItem) => void;
   onReportsChange?: () => void;
   project: WorkspaceProject;
   refreshKey?: number;
@@ -9187,6 +9190,10 @@ function DailyReportSection({
   );
   const selectedReport =
     reports.find((report) => report.reportDate === selectedDate) ?? null;
+  const selectedDateDocuments: ProjectDocumentListItem[] = [
+    ...(selectedReport ? [createDailyReportDocument(selectedReport)] : []),
+    ...(documents ?? []).filter((document) => document.date === selectedDate)
+  ];
   const editingReport =
     reports.find((report) => report.id === editingReportId) ?? null;
   const monthStart = new Date(`${calendarMonth}-01T00:00:00`);
@@ -9446,16 +9453,15 @@ function DailyReportSection({
                     ) : null}
                   </div>
                   {day.documents.length > 0 ? (
-                    <div className="mt-2 grid gap-1">
+                    <div className="mt-2 grid gap-0.5">
                       {day.documents.map((document) => (
-                        <div
+                        <p
                           key={document.id}
-                          className="rounded-[5px] border border-[#ebebeb] bg-[#fcfcfc] px-2 py-1"
+                          className="truncate text-[10px] font-semibold leading-4 text-[#171717]"
+                          title={getCalendarDocumentTitle(document)}
                         >
-                          <p className="truncate text-xs font-semibold leading-4 text-[#171717]">
-                            {getCalendarDocumentTitle(document)}
-                          </p>
-                        </div>
+                          {getCalendarDocumentTitle(document)}
+                        </p>
                       ))}
                     </div>
                   ) : (
@@ -9543,39 +9549,68 @@ function DailyReportSection({
             ) : null}
           </div>
 
-          {selectedReport ? (
-            <>
-              <button
-                type="button"
-                className="w-full rounded-[8px] border border-[#171717] bg-[#fcfcfc] p-4 text-left transition hover:bg-[#f6f6f6]"
-                onClick={() => setEditingReportId(selectedReport.id)}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold">
-                      {selectedReport.reportDate} 공사일보
-                    </p>
-                    <p className="mt-1 text-xs text-[#8f8f8f]">
-                      문서를 클릭해서 작성
-                    </p>
-                  </div>
-                  <ClipboardList size={18} className="text-[#8f8f8f]" aria-hidden />
-                </div>
-                <div className="mt-4 flex items-center gap-2 text-xs text-[#4d4d4d]">
-                  <CloudSun size={14} aria-hidden />
-                  {selectedReport.weather || "날씨 미입력"}
-                  {selectedReport.lowTemp || selectedReport.highTemp
-                    ? ` · ${selectedReport.lowTemp || "-"} / ${
-                        selectedReport.highTemp || "-"
-                      }℃`
-                    : ""}
-                </div>
-                <p className="mt-2 text-xs text-[#8f8f8f]">
-                  금일 작업{" "}
-                  {selectedReport.workItems.filter((item) => item.today).length}건
-                </p>
-              </button>
-            </>
+          {selectedDateDocuments.length > 0 ? (
+            <div className="grid gap-2">
+              {selectedDateDocuments.map((document) => {
+                const isDailyReport = document.documentType === "daily-report";
+                const report = document.report;
+
+                return (
+                  <button
+                    key={document.id}
+                    type="button"
+                    className="w-full rounded-[8px] border border-[#ebebeb] bg-[#fcfcfc] p-4 text-left transition hover:border-[#171717] hover:bg-white"
+                    onClick={() => {
+                      if (isDailyReport && report) {
+                        setEditingReportId(report.id);
+                        return;
+                      }
+
+                      onOpenProjectDocument?.(document);
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-[#171717]">
+                          {getCalendarDocumentTitle(document)}
+                        </p>
+                        <p className="mt-1 text-xs text-[#8f8f8f]">
+                          문서를 클릭해서 {isDailyReport ? "작성" : "확인"}
+                        </p>
+                      </div>
+                      <ClipboardList
+                        size={18}
+                        className="shrink-0 text-[#8f8f8f]"
+                        aria-hidden
+                      />
+                    </div>
+                    {isDailyReport && report ? (
+                      <>
+                        <div className="mt-4 flex items-center gap-2 text-xs text-[#4d4d4d]">
+                          <CloudSun size={14} aria-hidden />
+                          {report.weather || "날씨 미입력"}
+                          {report.lowTemp || report.highTemp
+                            ? ` · ${report.lowTemp || "-"} / ${
+                                report.highTemp || "-"
+                              }℃`
+                            : ""}
+                        </div>
+                        <p className="mt-2 text-xs text-[#8f8f8f]">
+                          금일 작업{" "}
+                          {report.workItems.filter((item) => item.today).length}건
+                        </p>
+                      </>
+                    ) : (
+                      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-[#4d4d4d]">
+                        <span>{document.owner || "관리자"}</span>
+                        <span className="text-[#c0c0c0]">·</span>
+                        <span>{document.status || "작성됨"}</span>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           ) : (
             <>
               <div className="rounded-[8px] border border-dashed border-[#ebebeb] p-5 text-center text-sm text-[#8f8f8f]">
