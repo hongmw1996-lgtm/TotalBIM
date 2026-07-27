@@ -9435,14 +9435,14 @@ function DailyReportSection({
                 <button
                   key={day.dateValue}
                   type="button"
-                  className={`min-h-[128px] border-b border-r border-[#ebebeb] p-2 text-left transition ${
+                  className={`flex min-h-[128px] flex-col overflow-hidden border-b border-r border-[#ebebeb] p-2 text-left transition ${
                     isSelected
                       ? "bg-[#f6f6f6] ring-1 ring-inset ring-[#171717]"
                       : "bg-white hover:bg-[#fcfcfc]"
                   } ${day.isCurrentMonth ? "" : "text-[#c0c0c0]"}`}
                   onClick={() => selectCalendarDate(day.dateValue)}
                 >
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex shrink-0 items-center justify-between gap-2">
                     <span className="text-sm font-semibold">
                       {day.date.getDate()}
                     </span>
@@ -9453,11 +9453,11 @@ function DailyReportSection({
                     ) : null}
                   </div>
                   {day.documents.length > 0 ? (
-                    <div className="mt-2 grid gap-0.5">
+                    <div className="mt-2 grid w-full min-w-0 gap-0.5 overflow-hidden">
                       {day.documents.map((document) => (
                         <p
                           key={document.id}
-                          className="truncate text-[10px] font-semibold leading-4 text-[#171717]"
+                          className="w-full truncate text-[9px] font-semibold leading-[13px] text-[#171717]"
                           title={getCalendarDocumentTitle(document)}
                         >
                           {getCalendarDocumentTitle(document)}
