@@ -12,6 +12,7 @@ import {
   upsertLocalIfcDerivative
 } from "@/lib/ifc/local/localIfcRepository";
 import { serializeIfcModel } from "@/lib/ifc/serializeIfcModel";
+import type { StorageProvider } from "@/lib/storage/types";
 
 type CreateUploadedIfcModelInput = {
   projectId: string;
@@ -41,6 +42,10 @@ export async function createUploadedIfcModel({
   const resolvedStorageKey =
     originalStorageKey ??
     path.relative(process.cwd(), filePath).replace(/\\/g, "/");
+  const derivativeStorageProvider =
+    originalStorageProvider === "LOCAL"
+      ? undefined
+      : (originalStorageProvider as StorageProvider);
 
   if (!projectId) {
     throw new Error("3D model files must be uploaded to a project.");
@@ -114,7 +119,7 @@ export async function createUploadedIfcModel({
     });
 
     createdModelId = model.id;
-    await createInitialDerivativeManifest(model);
+    await createInitialDerivativeManifest(model, derivativeStorageProvider);
 
     const modelWithDerivatives = await prisma.ifcModel.findUniqueOrThrow({
       where: {
