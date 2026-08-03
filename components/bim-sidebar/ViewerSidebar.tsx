@@ -761,6 +761,7 @@ export function ViewerSidebar() {
                               <button
                                 type="button"
                                 className="flex size-7 shrink-0 items-center justify-center rounded-[6px] text-[#8f8f8f] transition hover:bg-[#fff1f1] hover:text-[#d92d20] disabled:cursor-not-allowed disabled:opacity-50"
+                                data-testid={`delete-model-${model.id}`}
                                 aria-label={`Delete ${model.originalFileName}`}
                                 title="Delete model"
                                 disabled={deletingModelId === model.id}
