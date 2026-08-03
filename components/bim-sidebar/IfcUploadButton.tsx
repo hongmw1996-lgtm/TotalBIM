@@ -137,6 +137,7 @@ export function IfcUploadButton({
     try {
       const blob = await upload(getBlobUploadPath(file.name), file, {
         access: "private",
+        contentType: file.type || "application/octet-stream",
         handleUploadUrl: "/api/ifc/upload/blob",
         multipart: true
       });
