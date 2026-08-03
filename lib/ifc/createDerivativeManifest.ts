@@ -47,12 +47,18 @@ export function buildInitialDerivativeManifest(model: IfcModelForDerivative) {
   };
 }
 
-export async function createInitialDerivativeManifest(model: IfcModelForDerivative) {
+export async function createInitialDerivativeManifest(
+  model: IfcModelForDerivative,
+  storageProvider?: StorageProvider
+) {
   if (!prisma) {
     throw new Error("Prisma client is not configured.");
   }
 
-  const derivativeData = await storeInitialDerivativeManifest(model);
+  const derivativeData = await storeInitialDerivativeManifest(
+    model,
+    storageProvider
+  );
 
   return prisma.ifcModelDerivative.create({
     data: derivativeData
