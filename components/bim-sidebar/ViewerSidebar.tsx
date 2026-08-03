@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Search,
   SlidersHorizontal,
+  Trash2,
   X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -178,6 +179,7 @@ export function ViewerSidebar() {
   const [models, setModels] = useState<IfcModelSummary[]>([]);
   const [warning, setWarning] = useState<string | null>(null);
   const [processingModelId, setProcessingModelId] = useState<string | null>(null);
+  const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [isPropertyPickerVisible, setIsPropertyPickerVisible] = useState(false);
   const [propertyPickerQuery, setPropertyPickerQuery] = useState("");
@@ -215,6 +217,7 @@ export function ViewerSidebar() {
   const clearFilterValues = useViewerStore((state) => state.clearFilterValues);
   const clearAllFilters = useViewerStore((state) => state.clearAllFilters);
   const setActiveModel = useViewerStore((state) => state.setActiveModel);
+  const setActiveModelIds = useViewerStore((state) => state.setActiveModelIds);
   const toggleActiveModelId = useViewerStore((state) => state.toggleActiveModelId);
   const setModelOffset = useViewerStore((state) => state.setModelOffset);
   const resetModelOffset = useViewerStore((state) => state.resetModelOffset);
@@ -346,6 +349,48 @@ export function ViewerSidebar() {
     [fetchModels, pollProcessingStatus, setError]
   );
 
+  const deleteModel = useCallback(
+    async (model: IfcModelSummary) => {
+      if (deletingModelId || !window.confirm(`${model.originalFileName} 모델을 삭제하시겠습니까?`)) {
+        return;
+      }
+
+      setDeletingModelId(model.id);
+      setError(null);
+      setContextMenu(null);
+
+      try {
+        const response = await fetch(`/api/ifc/models/${model.id}`, {
+          method: "DELETE"
+        });
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+
+        if (!response.ok) {
+          throw new Error(payload?.error ?? "모델 삭제에 실패했습니다.");
+        }
+
+        setModels((currentModels) =>
+          currentModels.filter((currentModel) => currentModel.id !== model.id)
+        );
+
+        if (activeModelIds.includes(model.id)) {
+          setActiveModelIds(
+            activeModelIds.filter((activeModelId) => activeModelId !== model.id)
+          );
+        }
+
+        window.dispatchEvent(new Event("ifc-models:refresh"));
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "모델 삭제에 실패했습니다.");
+      } finally {
+        setDeletingModelId(null);
+      }
+    },
+    [activeModelIds, deletingModelId, setActiveModelIds, setError]
+  );
+
   const openPositionModal = useCallback(
     (modelId: string) => {
       const offset = modelOffsets[modelId] ?? { x: 0, y: 0, z: 0 };
@@ -422,14 +467,24 @@ export function ViewerSidebar() {
         | "move"
         | "resetMove"
         | "reprocess"
+        | "delete"
     ) => {
       if (!contextMenu) {
         return;
       }
 
       const modelId = contextMenu.modelId;
+      const model = modelsById.get(modelId);
       const isVisible = modelVisibility[modelId] ?? true;
       setContextMenu(null);
+
+      if (action === "delete") {
+        if (model) {
+          void deleteModel(model);
+        }
+
+        return;
+      }
 
       if (action === "visibility") {
         setModelVisibility(modelId, !isVisible);
@@ -460,7 +515,9 @@ export function ViewerSidebar() {
     },
     [
       contextMenu,
+      deleteModel,
       modelVisibility,
+      modelsById,
       openColorModal,
       openPositionModal,
       processModel,
@@ -699,6 +756,17 @@ export function ViewerSidebar() {
                                 >
                                   {model.originalFileName}
                                 </div>
+                              </button>
+
+                              <button
+                                type="button"
+                                className="flex size-7 shrink-0 items-center justify-center rounded-[6px] text-[#8f8f8f] transition hover:bg-[#fff1f1] hover:text-[#d92d20] disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label={`Delete ${model.originalFileName}`}
+                                title="Delete model"
+                                disabled={deletingModelId === model.id}
+                                onClick={() => void deleteModel(model)}
+                              >
+                                <Trash2 size={14} aria-hidden />
                               </button>
 
                               <button
@@ -1037,6 +1105,14 @@ export function ViewerSidebar() {
                   processingModelId === contextMenu.modelId
                 )
               : "Process"}
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 border-t border-[#ebebeb] px-3 py-2 text-left text-sm text-[#b42318] transition hover:bg-[#fff1f1]"
+            onClick={() => handleContextAction("delete")}
+          >
+            <Trash2 size={14} aria-hidden />
+            Delete model
           </button>
         </div>
       ) : null}
