@@ -1,7 +1,7 @@
 "use client";
 
-import { ChangeEvent, ReactNode, useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
+import { ChangeEvent, ReactNode, useRef, useState } from "react";
 import { IfcModelSummary, useViewerStore } from "@/store/viewerStore";
 
 type IfcUploadButtonProps = {
@@ -23,6 +23,34 @@ type BlobUploadResponse = {
   pathname: string;
 };
 
+async function readJsonResponse<T>(response: Response, fallbackMessage: string) {
+  const text = await response.text();
+
+  if (!text) {
+    return { error: fallbackMessage } as T & { error?: string };
+  }
+
+  try {
+    return JSON.parse(text) as T & { error?: string };
+  } catch {
+    return { error: fallbackMessage } as T & { error?: string };
+  }
+}
+
+function getUploadErrorMessage(error: unknown) {
+  const message =
+    error instanceof Error ? error.message : "3D 파일 업로드에 실패했습니다.";
+
+  if (
+    message.includes("Failed to execute 'json'") ||
+    message.includes("Unexpected end of JSON input")
+  ) {
+    return "업로드 서버 응답이 비어 있습니다. 배포 환경의 Blob 업로드 설정과 파일 크기 제한을 확인해 주세요.";
+  }
+
+  return message;
+}
+
 function getBlobUploadPath(fileName: string) {
   const safeFileName = fileName.replace(/[\\/]/g, "_");
 
@@ -39,7 +67,10 @@ async function enqueueProcessing(modelId: string) {
   const response = await fetch(`/api/ifc/models/${modelId}/process`, {
     method: "POST"
   });
-  const payload = (await response.json()) as { error?: string };
+  const payload = await readJsonResponse<{ error?: string }>(
+    response,
+    "3D 파일 처리 요청에 실패했습니다."
+  );
 
   if (!response.ok) {
     throw new Error(payload.error ?? "3D 파일 처리 요청에 실패했습니다.");
@@ -66,7 +97,10 @@ async function completeBlobUpload(
       modelVersion
     })
   });
-  const payload = (await response.json()) as UploadResponse;
+  const payload = await readJsonResponse<UploadResponse>(
+    response,
+    "3D 파일 업로드 등록에 실패했습니다."
+  );
 
   if (!response.ok || !payload.model) {
     throw new Error(payload.error ?? "3D 파일 업로드 등록에 실패했습니다.");
@@ -118,8 +152,7 @@ export function IfcUploadButton({
       );
       window.dispatchEvent(new Event("ifc-models:refresh"));
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "3D 파일 업로드에 실패했습니다.";
+      const errorMessage = getUploadErrorMessage(error);
       setMessage(errorMessage);
       setError(errorMessage);
       window.dispatchEvent(new Event("ifc-models:refresh"));
