@@ -1,4 +1,9 @@
-export type ViewerFilterPropertyKey = "type" | "name" | "id" | "level";
+export type ViewerFilterPropertyKey =
+  | "type"
+  | "name"
+  | "id"
+  | "level"
+  | "zoning";
 
 export type ViewerFilterValueOption = {
   value: string;
