@@ -7,6 +7,10 @@ type EntityRecord = {
 
 export type IfcMaterialIndex = Map<number, string[]>;
 export type IfcObjectPropertyIndex = Map<number, Record<string, string>>;
+export type IfcObjectIndexedProperty = {
+  name: string;
+  value: string;
+};
 
 function decodeStepString(value: string) {
   return value
@@ -155,10 +159,35 @@ function getPropertySetValues(
       continue;
     }
 
-    values[normalizePropertyName(singleValue.name)] = singleValue.value;
+    const normalizedName = normalizePropertyName(singleValue.name);
+    values[normalizedName] = singleValue.value;
+    values[`__name:${normalizedName}`] = singleValue.name;
   }
 
   return values;
+}
+
+export function getIndexedPropertyValue(
+  properties: Record<string, string> | null | undefined,
+  propertyName: string
+) {
+  return properties?.[normalizePropertyName(propertyName)]?.trim() || null;
+}
+
+export function getIndexedPropertiesForDisplay(
+  properties: Record<string, string> | null | undefined
+) {
+  if (!properties) {
+    return [];
+  }
+
+  return Object.entries(properties)
+    .filter(([name, value]) => !name.startsWith("__name:") && value.trim())
+    .map(([name, value]) => ({
+      name: properties[`__name:${name}`] ?? name,
+      value
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 export function buildIfcObjectPropertyIndex(
