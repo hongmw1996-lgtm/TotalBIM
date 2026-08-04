@@ -36,7 +36,9 @@ const STRUCTURAL_KEYS = new Set([
   "istypedby",
   "hasassociations",
   "containedinstructure",
-  "properties"
+  "properties",
+  "__ifcproperties",
+  "__materialnames"
 ]);
 
 function unwrapValue(value: unknown): unknown {
@@ -269,6 +271,37 @@ function isQuantityTitle(title: string) {
     normalized.includes("qto") ||
     normalized.includes("materialquantities")
   );
+}
+
+function buildIndexedIfcParametersSection(properties: Record<string, unknown>) {
+  const indexedProperties = unwrapValue(properties.__ifcProperties);
+
+  if (!isRecord(indexedProperties)) {
+    return null;
+  }
+
+  const rows = [
+    ["Level", indexedProperties.level],
+    ["Zoning", indexedProperties.zoning]
+  ]
+    .map(([label, value]) => ({
+      label: String(label),
+      value: formatPrimitive(value)
+    }))
+    .filter(
+      (row): row is PropertyRow =>
+        typeof row.value === "string" && row.value.length > 0
+    );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return {
+    title: "IFC Object Parameters",
+    rows,
+    sections: []
+  } satisfies PropertySection;
 }
 
 function collectPropertySetSections(
@@ -556,6 +589,11 @@ function buildRootSections(properties: Record<string, unknown>) {
   const materialSection = buildMaterialSection(properties);
   if (materialSection) {
     sections.push(materialSection);
+  }
+
+  const indexedParametersSection = buildIndexedIfcParametersSection(properties);
+  if (indexedParametersSection) {
+    sections.push(indexedParametersSection);
   }
 
   const parametersSection = buildParametersSection(properties);
