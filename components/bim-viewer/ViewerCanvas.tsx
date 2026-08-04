@@ -8,7 +8,6 @@ import type { FragmentsViewerRuntime } from "@/lib/viewer/createFragmentsViewer"
 import type { ViewerFilterPropertyKey } from "@/lib/viewer/filtering";
 import { loadIfcModel } from "@/lib/viewer/loadIfcModel";
 import type { IfcLoadSource } from "@/lib/viewer/loadIfcModel";
-import { viewerLoadModes } from "@/lib/viewer/loadModes";
 import { VIEWER_SELECT_OBJECT_EVENT } from "@/lib/viewer/objectSearch";
 import { VIEWER_COMMAND_EVENT, ViewerCommand } from "@/lib/viewer/viewerEvents";
 import { useViewerStore } from "@/store/viewerStore";
@@ -35,7 +34,7 @@ export function ViewerCanvas() {
   const runtimeRef = useRef<FragmentsViewerRuntime | null>(null);
   const loadAbortRef = useRef<AbortController | null>(null);
   const [status, setStatus] = useState<ViewerStatus>("idle");
-  const [, setStatusMessage] = useState("뷰어 준비 완료");
+  const [statusMessage, setStatusMessage] = useState("뷰어 준비 완료");
   const [loadedModelIds, setLoadedModelIds] = useState<string[]>([]);
   const [apsSource, setApsSource] = useState<
     Extract<IfcLoadSource, { kind: "aps" }> | null
@@ -47,7 +46,6 @@ export function ViewerCanvas() {
   const modelColorOverrides = useViewerStore(
     (state) => state.modelColorOverrides
   );
-  const activeModelName = useViewerStore((state) => state.activeModelName);
   const activeModelFileUrl = useViewerStore((state) => state.activeModelFileUrl);
   const activeModelObjectCount = useViewerStore(
     (state) => state.activeModelObjectCount
@@ -73,7 +71,6 @@ export function ViewerCanvas() {
   );
   const setSelectedObject = useViewerStore((state) => state.setSelectedObject);
   const setClippingPlane = useViewerStore((state) => state.setClippingPlane);
-  const activeLoadMode = viewerLoadModes.find((mode) => mode.mode === loadMode);
 
   function getRuntimeErrorMessage(error: unknown, fallback: string) {
     return error instanceof Error ? error.message : fallback;
@@ -470,6 +467,7 @@ export function ViewerCanvas() {
   const showEmptyState =
     !apsSource &&
     (activeModelIds.length === 0 ||
+      loadedModelIds.length === 0 ||
       loadMode === "metadata-only" ||
       loadMode === "original-ifc" ||
       status === "error");
@@ -496,9 +494,7 @@ export function ViewerCanvas() {
                 Fragments BIM Viewer
               </h2>
               <p className="mt-2 text-sm leading-6 text-[#5a6678]">
-                {activeModelName
-                  ? `${activeModelName} 모델을 ${activeLoadMode?.label ?? loadMode} 방식으로 준비했습니다.`
-                  : "왼쪽 목록에서 모델을 선택하면 Fragments 파생 파일을 우선 로드합니다."}
+                {statusMessage}
               </p>
               {activeModelFileUrl ? (
                 <p className="mt-2 text-xs leading-5 text-[#647083]">
