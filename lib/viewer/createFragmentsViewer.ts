@@ -14,6 +14,7 @@ import type {
 import {
   buildIfcMaterialIndex,
   buildIfcObjectPropertyIndex,
+  getIndexedPropertyValue,
   type IfcMaterialIndex,
   type IfcObjectPropertyIndex
 } from "@/lib/viewer/ifcMaterialIndex";
@@ -537,7 +538,8 @@ export async function createFragmentsViewer({
       type: "type",
       name: "name",
       id: "id",
-      level: "level"
+      level: "level",
+      zoning: "zoning"
     };
 
     const properties: ViewerFilterPropertyOption[] = [...propertyCounts.entries()]
@@ -1375,12 +1377,27 @@ export async function createFragmentsViewer({
       }
 
       const searchIndex = await buildSearchIndex(model, geometryLocalIds);
+      const objectPropertyIndex =
+        (await propertyIndexByModelId.get(model.modelId)?.catch(() => new Map())) ??
+        new Map();
       for (const item of searchIndex) {
         addPropertyValue("type", normalizeCategory(item.ifcType), item.localId);
         addPropertyValue("name", item.name, item.localId);
         addPropertyValue(
           "id",
           item.globalId ? item.globalId : String(item.localId),
+          item.localId
+        );
+
+        const indexedProperties = objectPropertyIndex.get(item.localId);
+        addPropertyValue(
+          "level",
+          getIndexedPropertyValue(indexedProperties, "Level"),
+          item.localId
+        );
+        addPropertyValue(
+          "zoning",
+          getIndexedPropertyValue(indexedProperties, "Zoning"),
           item.localId
         );
       }
