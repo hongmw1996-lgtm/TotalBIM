@@ -47,19 +47,22 @@ const filterPropertyLabels: Record<ViewerFilterPropertyKey, string> = {
   type: "Type",
   name: "Name",
   id: "Global ID",
-  level: "Level"
+  level: "Level",
+  zoning: "Zoning"
 };
 
 const filterPropertyDescriptions: Record<ViewerFilterPropertyKey, string> = {
   type: "Object type / IFC category",
   name: "Object name",
   id: "Global ID / object identifier",
-  level: "Storey / level"
+  level: "Storey / object Level parameter",
+  zoning: "Object Zoning parameter"
 };
 
 const popularFilterPropertyKeys = new Set<ViewerFilterPropertyKey>([
   "type",
   "level",
+  "zoning",
   "name",
   "id"
 ]);
