@@ -164,6 +164,8 @@ const emptyGraph: GraphData = {
   edges: [],
   nodes: []
 };
+const ONTOLOGY_DATA_BASE_URL =
+  "https://raw.githubusercontent.com/hongmw1996-lgtm/TotalBIM/main/ontology-data";
 const sparqlResultFiles = [
   {
     file: "10_workset_category_quantity_summary.csv",
@@ -211,9 +213,10 @@ export function OntologyProjectPage({ projectId, projectName }: OntologyProjectP
 
     async function loadOntology() {
       try {
-        const response = await fetch("/ontology/latest_revit_export.json", {
-          cache: "no-store"
-        });
+        const response = await fetch(
+          `${ONTOLOGY_DATA_BASE_URL}/latest_revit_export.json`,
+          { cache: "no-store" }
+        );
 
         if (!response.ok) {
           throw new Error(`온톨로지 파일을 불러오지 못했습니다. (${response.status})`);
@@ -430,7 +433,7 @@ export function OntologyProjectPage({ projectId, projectName }: OntologyProjectP
         <a
           className={secondaryButtonClass}
           download
-          href="/ontology/latest_revit_export.json"
+          href={`${ONTOLOGY_DATA_BASE_URL}/latest_revit_export.json`}
         >
           <Download size={16} aria-hidden />
           JSON Export
@@ -781,9 +784,10 @@ function SparqlResultsPanel() {
       setError(null);
 
       try {
-        const response = await fetch(`/ontology/results/${selectedFile}`, {
-          cache: "no-store"
-        });
+        const response = await fetch(
+          `${ONTOLOGY_DATA_BASE_URL}/results/${selectedFile}`,
+          { cache: "no-store" }
+        );
 
         if (!response.ok) {
           throw new Error(`SPARQL result not found (${response.status})`);
