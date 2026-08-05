@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -42,9 +43,16 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { BimViewer } from "@/components/bim-viewer/BimViewer";
 import { IfcUploadButton } from "@/components/bim-sidebar/IfcUploadButton";
 import { ViewerSidebar } from "@/components/bim-sidebar/ViewerSidebar";
-import { OntologyProjectPage } from "@/components/projects/OntologyProjectPage";
 import type { AuthSessionUser } from "@/lib/auth/adminAuth";
 import type { IfcModelSummary } from "@/store/viewerStore";
+
+const OntologyProjectPage = dynamic(
+  () =>
+    import("@/components/projects/OntologyProjectPage").then(
+      (module) => module.OntologyProjectPage
+    ),
+  { ssr: false }
+);
 
 type WorkspaceView =
   | "home"
