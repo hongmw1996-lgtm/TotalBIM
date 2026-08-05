@@ -176,7 +176,7 @@ function EmptySavedViewsState() {
   );
 }
 
-export function ViewerSidebar() {
+export function ViewerSidebar({ projectId }: { projectId?: string | null }) {
   const [activeTab, setActiveTab] = useState<ViewerSidebarTab>("models");
   const [savedViewScope, setSavedViewScope] = useState<"all" | "mine">("all");
   const [models, setModels] = useState<IfcModelSummary[]>([]);
@@ -280,7 +280,8 @@ export function ViewerSidebar() {
 
       const searchParams = new URLSearchParams(window.location.search);
       const requestedModelId = searchParams.get("modelId");
-      const requestedProjectId = searchParams.get("projectId");
+      const requestedProjectId = searchParams.get("projectId") ?? projectId ?? null;
+      const requestedLocalId = searchParams.get("selectLocalId");
       let nextProjectId =
         requestedProjectId ??
         nextModels.find((model) => activeModelIds.includes(model.id))?.projectId ??
@@ -299,6 +300,39 @@ export function ViewerSidebar() {
         }
       }
 
+      if (!requestedModelId && requestedLocalId) {
+        const candidateModels = nextModels
+          .filter((model) =>
+            nextProjectId ? model.projectId === nextProjectId : !model.projectId
+          )
+          .sort((left, right) => {
+            const readyDifference =
+              Number(right.status === "READY") - Number(left.status === "READY");
+
+            if (readyDifference !== 0) {
+              return readyDifference;
+            }
+
+            const derivativeDifference =
+              right.derivativeCount - left.derivativeCount;
+
+            if (derivativeDifference !== 0) {
+              return derivativeDifference;
+            }
+
+            return (
+              new Date(right.updatedAt ?? right.createdAt).getTime() -
+              new Date(left.updatedAt ?? left.createdAt).getTime()
+            );
+          });
+        const candidateModel = candidateModels[0] ?? null;
+
+        if (candidateModel && candidateModel.id !== autoSelectedModelRef.current) {
+          setActiveModel(candidateModel);
+          autoSelectedModelRef.current = candidateModel.id;
+        }
+      }
+
       setActiveProjectId(nextProjectId);
       return nextModels;
     } catch (error) {
@@ -307,7 +341,7 @@ export function ViewerSidebar() {
       setError(errorMessage);
       return [];
     }
-  }, [activeModelIds, clearActiveModelIds, setActiveModel, setError]);
+  }, [activeModelIds, clearActiveModelIds, projectId, setActiveModel, setError]);
 
   const pollProcessingStatus = useCallback(
     async (modelId: string) => {
