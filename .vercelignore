@@ -12,3 +12,4 @@ generated
 *.log
 *.ifc
 *.frag
+public/ontology/*.ttl

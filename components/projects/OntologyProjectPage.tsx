@@ -430,10 +430,10 @@ export function OntologyProjectPage({ projectId, projectName }: OntologyProjectP
         <a
           className={secondaryButtonClass}
           download
-          href="/ontology/latest_revit_export.ttl"
+          href="/ontology/latest_revit_export.json"
         >
           <Download size={16} aria-hidden />
-          TTL 다운로드
+          JSON Export
         </a>
       </div>
 
