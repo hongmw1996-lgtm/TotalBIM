@@ -1,0 +1,111 @@
+@prefix inst: <https://example.org/ontology/instance/> .
+@prefix domain: <https://example.org/ontology/domain#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+inst:Rule_R-001
+    a domain:RegulationRule ;
+    rdfs:label "Door fire rating check" ;
+    domain:scopeType "category" ;
+    domain:appliesTo inst:Category_0_Doors ;
+    domain:ruleId "R-001" ;
+    domain:severity "high" ;
+    domain:requirement "Doors in the selected workset category must keep required fire rating metadata." .
+
+inst:Rule_R-002
+    a domain:RegulationRule ;
+    rdfs:label "Wall material traceability" ;
+    domain:scopeType "category" ;
+    domain:appliesTo inst:Category_0_Walls ;
+    domain:ruleId "R-002" ;
+    domain:severity "medium" ;
+    domain:requirement "Walls in the selected workset category must have material references." .
+
+inst:Task_S-001
+    a domain:ScheduleTask ;
+    rdfs:label "Level 1 architectural wall installation" ;
+    domain:scopeType "category" ;
+    domain:appliesTo inst:Category_0_Walls ;
+    domain:taskId "S-001" ;
+    domain:startDate "2026-08-10"^^xsd:date ;
+    domain:endDate "2026-08-20"^^xsd:date ;
+    domain:status "planned" .
+
+inst:Task_S-002
+    a domain:ScheduleTask ;
+    rdfs:label "Level 1 door installation" ;
+    domain:scopeType "category" ;
+    domain:appliesTo inst:Category_0_Doors ;
+    domain:taskId "S-002" ;
+    domain:startDate "2026-08-21"^^xsd:date ;
+    domain:endDate "2026-08-25"^^xsd:date ;
+    domain:status "planned" .
+
+inst:Cost_C-001
+    a domain:CostItem ;
+    rdfs:label "Wall finish allowance" ;
+    domain:scopeType "category" ;
+    domain:appliesTo inst:Category_0_Walls ;
+    domain:costId "C-001" ;
+    domain:unit "m2" ;
+    domain:currency "KRW" ;
+    domain:unitCost "42000"^^xsd:decimal ;
+    domain:quantity "4361.5998238993738183"^^xsd:decimal ;
+    domain:totalCost "183187192.6037737003686000"^^xsd:decimal .
+
+inst:Cost_C-002
+    a domain:CostItem ;
+    rdfs:label "Door hardware allowance" ;
+    domain:scopeType "category" ;
+    domain:appliesTo inst:Category_0_Doors ;
+    domain:costId "C-002" ;
+    domain:unit "set" ;
+    domain:currency "KRW" ;
+    domain:unitCost "180000"^^xsd:decimal ;
+    domain:quantity "6"^^xsd:decimal ;
+    domain:totalCost "1080000"^^xsd:decimal .
+
+inst:RulePack_RP-STRUCT-WALL-001
+    a domain:CategoryRulePack ;
+    rdfs:label "Structural wall quantity review" ;
+    domain:scopeType "category" ;
+    domain:appliesTo inst:Category_950_Walls ;
+    domain:packId "RP-STRUCT-WALL-001" ;
+    domain:discipline "Structure" ;
+    domain:ruleFamily "quantity" ;
+    domain:checkType "summary" ;
+    domain:description "Review wall area and volume by structural workset/category before cost or schedule use." .
+
+inst:RulePack_RP-ARCH-DOOR-001
+    a domain:CategoryRulePack ;
+    rdfs:label "Architectural door coordination review" ;
+    domain:scopeType "category" ;
+    domain:appliesTo inst:Category_949_Doors ;
+    domain:packId "RP-ARCH-DOOR-001" ;
+    domain:discipline "Architecture" ;
+    domain:ruleFamily "coordination" ;
+    domain:checkType "object-property" ;
+    domain:description "Check door object properties and room relations when room binding exists in export." .
+
+inst:RulePack_RP-MEP-EQUIP-001
+    a domain:CategoryRulePack ;
+    rdfs:label "MEP equipment placeholder rule pack" ;
+    domain:scopeType "workset" ;
+    domain:appliesTo inst:Workset_1757 ;
+    domain:packId "RP-MEP-EQUIP-001" ;
+    domain:discipline "MEP" ;
+    domain:ruleFamily "classification" ;
+    domain:checkType "coverage" ;
+    domain:description "Attach MEP equipment checks to a workset when MEP categories are introduced in the Revit model." .
+
+inst:RulePack_RP-FFNE-FURN-001
+    a domain:CategoryRulePack ;
+    rdfs:label "Furniture and equipment placeholder rule pack" ;
+    domain:scopeType "workset" ;
+    domain:appliesTo inst:Workset_953 ;
+    domain:packId "RP-FFNE-FURN-001" ;
+    domain:discipline "FF&E" ;
+    domain:ruleFamily "classification" ;
+    domain:checkType "coverage" ;
+    domain:description "Attach furniture and loose equipment checks to a workset when FF&E categories are introduced in the Revit model." .
+

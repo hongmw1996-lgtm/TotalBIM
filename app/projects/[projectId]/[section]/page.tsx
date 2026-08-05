@@ -14,6 +14,7 @@ const projectPages = new Set<ProjectPageKey>([
   "settings",
   "schedule",
   "progress-payments",
+  "ontology",
   "subcontractors",
   "photos",
   "members"

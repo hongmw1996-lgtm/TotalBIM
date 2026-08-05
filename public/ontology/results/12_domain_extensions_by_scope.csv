@@ -1,0 +1,11 @@
+﻿domainType,domainName,scopeType,target,targetName
+CategoryRulePack,Architectural door coordination review,category,https://example.org/ontology/instance/Category_949_Doors,Doors
+CategoryRulePack,Structural wall quantity review,category,https://example.org/ontology/instance/Category_950_Walls,Walls
+CategoryRulePack,Furniture and equipment placeholder rule pack,workset,https://example.org/ontology/instance/Workset_953,1-08-O
+CategoryRulePack,MEP equipment placeholder rule pack,workset,https://example.org/ontology/instance/Workset_1757,분리발주공사
+CostItem,Door hardware allowance,category,https://example.org/ontology/instance/Category_0_Doors,Doors
+CostItem,Wall finish allowance,category,https://example.org/ontology/instance/Category_0_Walls,Walls
+RegulationRule,Door fire rating check,category,https://example.org/ontology/instance/Category_0_Doors,Doors
+RegulationRule,Wall material traceability,category,https://example.org/ontology/instance/Category_0_Walls,Walls
+ScheduleTask,Level 1 door installation,category,https://example.org/ontology/instance/Category_0_Doors,Doors
+ScheduleTask,Level 1 architectural wall installation,category,https://example.org/ontology/instance/Category_0_Walls,Walls

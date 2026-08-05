@@ -20,6 +20,7 @@ import {
   LogOut,
   MoreHorizontal,
   Moon,
+  Network,
   PackageOpen,
   PanelLeftClose,
   PanelLeftOpen,
@@ -41,6 +42,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { BimViewer } from "@/components/bim-viewer/BimViewer";
 import { IfcUploadButton } from "@/components/bim-sidebar/IfcUploadButton";
 import { ViewerSidebar } from "@/components/bim-sidebar/ViewerSidebar";
+import { OntologyProjectPage } from "@/components/projects/OntologyProjectPage";
 import type { AuthSessionUser } from "@/lib/auth/adminAuth";
 import type { IfcModelSummary } from "@/store/viewerStore";
 
@@ -66,13 +68,14 @@ export type ProjectPageKey =
   | "settings"
   | "schedule"
   | "progress-payments"
+  | "ontology"
   | "photos"
   | "subcontractors"
   | "members";
 
 type ProjectComingSoonPageKey = Exclude<
   ProjectPageKey,
-  "info" | "viewer" | "documents" | "settings" | "subcontractors"
+  "info" | "viewer" | "documents" | "settings" | "subcontractors" | "ontology"
 >;
 
 type ProjectInfoTabKey = "sitePhotos" | "dashboard";
@@ -3709,7 +3712,7 @@ function ViewerWorkspace({
   return (
     <div className="grid h-[calc(100vh-4rem)] min-h-[656px] grid-cols-[340px_minmax(0,1fr)] border-t border-[#ebebeb] max-xl:grid-cols-[300px_minmax(0,1fr)] max-lg:grid-cols-1 max-lg:grid-rows-[auto_minmax(520px,1fr)]">
       <aside className="min-h-0 overflow-hidden border-r border-[#ebebeb] bg-white max-lg:border-b max-lg:border-r-0">
-        <ViewerSidebar />
+        <ViewerSidebar projectId={uploadProjectId} />
       </aside>
 
       <section className="flex min-h-0 flex-col bg-[#f2f2f2]">
@@ -4463,6 +4466,12 @@ function ProjectDetailWorkspace({
       icon: ClipboardList
     },
     {
+      key: "ontology",
+      label: "온톨로지",
+      href: `${projectBaseHref}/ontology`,
+      icon: Network
+    },
+    {
       key: "subcontractors",
       label: "협력사",
       href: `${projectBaseHref}/subcontractors`,
@@ -4604,6 +4613,10 @@ function ProjectDetailWorkspace({
 
           {projectPage === "subcontractors" ? (
             <ProjectSubcontractorsPage key={project.id} project={project} />
+          ) : null}
+
+          {projectPage === "ontology" ? (
+            <OntologyProjectPage projectId={project.id} projectName={project.name} />
           ) : null}
 
           {projectPage === "progress-payments" ||
