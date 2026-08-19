@@ -77,10 +77,13 @@ type OntologyExport = {
   worksets: OntologyWorkset[];
 };
 
-type GraphMode = "workset" | "level" | "material" | "host";
+type GraphMode = "schema" | "workset" | "level" | "material" | "host";
 type ViewMode = "elements" | "spaces";
 
 type GraphNodeKind =
+  | "ontology"
+  | "class"
+  | "property"
   | "workset"
   | "category"
   | "level"
@@ -91,7 +94,9 @@ type GraphNodeKind =
 type GraphNode = {
   categoryName?: string;
   count?: number;
+  description?: string;
   id: string;
+  iri?: string;
   kind: GraphNodeKind;
   label: string;
   sourceId?: string;
@@ -106,9 +111,12 @@ type GraphEdge = {
   predicate: string;
   relation:
     | "containsObject"
+    | "definesClass"
+    | "definesProperty"
     | "hasCategory"
     | "hasMaterial"
     | "hostedBy"
+    | "instantiates"
     | "locatedOnLevel";
   to: string;
 };
@@ -154,6 +162,12 @@ type ScopeSummary = {
   spaces: number;
   totalArea: number;
   totalVolume: number;
+};
+
+type SemanticTriple = {
+  object: string;
+  predicate: string;
+  subject: string;
 };
 
 const GRAPH_VIEWPORT_HEIGHT = 720;
@@ -202,7 +216,7 @@ export function OntologyProjectPage({ projectId, projectName }: OntologyProjectP
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [view, setView] = useState<ViewMode>("elements");
-  const [graphMode, setGraphMode] = useState<GraphMode>("workset");
+  const [graphMode, setGraphMode] = useState<GraphMode>("schema");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter | null>(null);
@@ -446,6 +460,8 @@ export function OntologyProjectPage({ projectId, projectName }: OntologyProjectP
         <OntologyMetric label="Spaces" value={data.spaces.length} />
         <OntologyMetric label="Elements" value={data.elements.length} />
         <OntologyMetric label="Materials" value={data.materials.length} />
+        <OntologyMetric label="Relations" value={graph.edges.length} />
+        <OntologyMetric label="Facts" value={estimateFactCount(data)} />
       </div>
 
       <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-4 max-xl:grid-cols-[minmax(0,1fr)_320px] max-lg:grid-cols-1">
@@ -468,6 +484,7 @@ export function OntologyProjectPage({ projectId, projectName }: OntologyProjectP
               }}
               value={graphMode}
             >
+              <option value="schema">Ontology schema</option>
               <option value="workset">Workset ontology</option>
               <option value="level">Level knowledge</option>
               <option value="material">Material knowledge</option>
@@ -510,6 +527,8 @@ export function OntologyProjectPage({ projectId, projectName }: OntologyProjectP
 
         <aside className="min-h-[680px] min-w-0 overflow-auto rounded-[8px] border border-[#ebebeb] bg-white p-5 shadow-[0_8px_24px_rgba(0,0,0,0.04)] max-lg:min-h-0">
           <OntologyNodeDetail
+            data={data}
+            graph={graph}
             item={selectedItem}
             node={selectedGraphNode}
             projectId={projectId}
@@ -682,11 +701,15 @@ function OntologyMetric({ label, value }: { label: string; value: number }) {
 }
 
 function OntologyNodeDetail({
+  data,
+  graph,
   item,
   node,
   projectId,
   viewerModel
 }: {
+  data: OntologyExport;
+  graph: GraphData;
   item: OntologyElement | OntologySpace | null;
   node: GraphNode | null;
   projectId: string;
@@ -718,6 +741,8 @@ function OntologyNodeDetail({
     [string, string | number]
   >;
   const isObjectNode = node.kind === "element" || node.kind === "space";
+  const semanticTriples = getNodeTriples(node, item, graph, data);
+  const neighborRows = getNodeNeighborhood(node, graph);
 
   return (
     <div>
@@ -741,6 +766,48 @@ function OntologyNodeDetail({
           <DetailRow key={label} label={label} value={String(value)} />
         ))}
       </dl>
+
+      <section className="mt-5">
+        <h4 className="text-sm font-semibold text-[#171717]">Semantic Triples</h4>
+        <div className="mt-2 overflow-hidden rounded-[8px] border border-[#ebebeb]">
+          {semanticTriples.slice(0, 10).map((triple, index) => (
+            <div
+              className="grid grid-cols-[minmax(0,1fr)] gap-1 border-b border-[#f1f1f1] bg-white px-3 py-2 text-xs last:border-b-0"
+              key={`${triple.subject}-${triple.predicate}-${triple.object}-${index}`}
+            >
+              <span className="truncate font-mono text-[#6d5dfc]" title={triple.subject}>
+                {triple.subject}
+              </span>
+              <span className="truncate font-mono text-[#9a6700]" title={triple.predicate}>
+                {triple.predicate}
+              </span>
+              <span className="truncate font-mono text-[#166534]" title={triple.object}>
+                {triple.object}
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {neighborRows.length > 0 ? (
+        <section className="mt-5">
+          <h4 className="text-sm font-semibold text-[#171717]">Neighborhood</h4>
+          <div className="mt-2 space-y-2">
+            {neighborRows.slice(0, 8).map((row, index) => (
+              <div
+                className="rounded-[8px] border border-[#ebebeb] bg-[#fcfcfc] px-3 py-2 text-xs"
+                key={`${row.predicate}-${row.node.id}-${index}`}
+              >
+                <div className="font-mono text-[#737373]">{row.direction}</div>
+                <div className="mt-1 truncate font-semibold text-[#171717]" title={row.node.label}>
+                  {row.node.label}
+                </div>
+                <div className="mt-1 font-mono text-[#6d5dfc]">{row.predicate}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {isObjectNode && item?.elementId ? (
         <>
@@ -941,6 +1008,117 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       </dd>
     </>
   );
+}
+
+function getNodeTriples(
+  node: GraphNode,
+  item: OntologyElement | OntologySpace | null,
+  graph: GraphData,
+  data: OntologyExport
+): SemanticTriple[] {
+  const subject = node.iri ?? node.id;
+  const triples: SemanticTriple[] = [
+    {
+      object: `bim:${capitalize(node.kind)}`,
+      predicate: "rdf:type",
+      subject
+    },
+    {
+      object: quoteLiteral(node.label),
+      predicate: "rdfs:label",
+      subject
+    }
+  ];
+
+  if (node.count !== undefined) {
+    triples.push({
+      object: String(node.count),
+      predicate: "bim:count",
+      subject
+    });
+  }
+
+  if (node.description) {
+    triples.push({
+      object: quoteLiteral(node.description),
+      predicate: "rdfs:comment",
+      subject
+    });
+  }
+
+  if (item) {
+    triples.push({
+      object: `inst:Workset_${item.worksetId ?? "unknown"}`,
+      predicate: "bim:belongsToWorkset",
+      subject
+    });
+    triples.push({
+      object: `inst:Category_${slugify(getObjectCategoryName(item))}`,
+      predicate: "bim:hasCategory",
+      subject
+    });
+
+    if (item.levelId) {
+      triples.push({
+        object: `inst:Level_${item.levelId}`,
+        predicate: "bim:locatedOnLevel",
+        subject
+      });
+    }
+
+    if ("materialIds" in item) {
+      for (const materialId of item.materialIds?.slice(0, 3) ?? []) {
+        const material = data.materials.find((entry) => entry.elementId === materialId);
+        triples.push({
+          object: material ? `inst:Material_${material.elementId}` : `inst:Material_${materialId}`,
+          predicate: "bim:hasMaterial",
+          subject
+        });
+      }
+    }
+  }
+
+  for (const edge of graph.edges.filter((entry) => entry.from === node.id).slice(0, 5)) {
+    const target = graph.nodes.find((entry) => entry.id === edge.to);
+    triples.push({
+      object: target?.iri ?? target?.label ?? edge.to,
+      predicate: edge.predicate,
+      subject
+    });
+  }
+
+  for (const edge of graph.edges.filter((entry) => entry.to === node.id).slice(0, 5)) {
+    const source = graph.nodes.find((entry) => entry.id === edge.from);
+    triples.push({
+      object: subject,
+      predicate: edge.predicate,
+      subject: source?.iri ?? source?.label ?? edge.from
+    });
+  }
+
+  return triples;
+}
+
+function getNodeNeighborhood(node: GraphNode, graph: GraphData) {
+  return graph.edges
+    .flatMap((edge) => {
+      if (edge.from === node.id) {
+        const target = graph.nodes.find((entry) => entry.id === edge.to);
+        return target
+          ? [{ direction: "outgoing", node: target, predicate: edge.predicate }]
+          : [];
+      }
+
+      if (edge.to === node.id) {
+        const source = graph.nodes.find((entry) => entry.id === edge.from);
+        return source
+          ? [{ direction: "incoming", node: source, predicate: edge.predicate }]
+          : [];
+      }
+
+      return [];
+    })
+    .slice(0, 12);
 }
 
 function OntologyGraph({
@@ -1175,11 +1353,7 @@ function OntologyGraph({
 
             return (
               <g
-                className={
-                  node.sourceId || node.kind === "workset" || node.kind === "category"
-                    ? "cursor-pointer"
-                    : undefined
-                }
+                className="cursor-pointer"
                 key={node.id}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -1243,6 +1417,10 @@ function IconButton({
 }
 
 function buildGraph(data: OntologyExport, mode: GraphMode): GraphData {
+  if (mode === "schema") {
+    return buildSchemaGraph(data);
+  }
+
   if (mode === "level") {
     return buildLevelGraph(data);
   }
@@ -1256,6 +1434,222 @@ function buildGraph(data: OntologyExport, mode: GraphMode): GraphData {
   }
 
   return buildWorksetGraph(data);
+}
+
+function buildSchemaGraph(data: OntologyExport): GraphData {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+  const centerX = 0;
+  const centerY = 0;
+  const rootId = "ontology:bim";
+
+  nodes.push({
+    count: estimateFactCount(data),
+    description: "Domain ontology and instance knowledge graph for Revit BIM data.",
+    id: rootId,
+    iri: "bim:Ontology",
+    kind: "ontology",
+    label: "BIM Ontology",
+    x: centerX,
+    y: centerY
+  });
+
+  const classNodes = [
+    {
+      count: 1,
+      description: "Project context exported from Revit.",
+      id: "class:Project",
+      label: "bim:Project"
+    },
+    {
+      count: data.worksets.length,
+      description: "Revit workset used as the primary BIM domain boundary.",
+      id: "class:Workset",
+      label: "bim:Workset"
+    },
+    {
+      count: getDistinctCategoryCount(data),
+      description: "BIM category grouping objects within each workset.",
+      id: "class:Category",
+      label: "bim:Category"
+    },
+    {
+      count: data.elements.length,
+      description: "Physical or logical Revit element instance.",
+      id: "class:Element",
+      label: "bim:Element"
+    },
+    {
+      count: data.spaces.length,
+      description: "Spatial Revit object used for room or zone context.",
+      id: "class:Space",
+      label: "bim:Space"
+    },
+    {
+      count: data.materials.length,
+      description: "Material resource referenced by BIM objects.",
+      id: "class:Material",
+      label: "bim:Material"
+    }
+  ];
+  const propertyNodes = [
+    {
+      count: data.elements.length + data.spaces.length,
+      description: "Connects worksets to category groups and object instances.",
+      id: "property:hasCategory",
+      label: "bim:hasCategory"
+    },
+    {
+      count: data.elements.length,
+      description: "Connects element instances to material resources.",
+      id: "property:hasMaterial",
+      label: "bim:hasMaterial"
+    },
+    {
+      count: data.elements.filter((element) => element.levelId).length + data.spaces.filter((space) => space.levelId).length,
+      description: "Connects BIM objects to Revit levels.",
+      id: "property:locatedOnLevel",
+      label: "bim:locatedOnLevel"
+    },
+    {
+      count: data.elements.filter((element) => element.relations?.isHostedBy).length,
+      description: "Connects hosted elements to their host objects.",
+      id: "property:hostedBy",
+      label: "bim:hostedBy"
+    }
+  ];
+
+  for (const [index, classNode] of classNodes.entries()) {
+    const angle = (Math.PI * 2 * index) / classNodes.length - Math.PI / 2;
+    nodes.push({
+      ...classNode,
+      iri: classNode.label,
+      kind: "class",
+      x: centerX + Math.cos(angle) * 250,
+      y: centerY + Math.sin(angle) * 250
+    });
+    edges.push({
+      from: rootId,
+      label: "owl:definesClass",
+      predicate: "owl:definesClass",
+      relation: "definesClass",
+      to: classNode.id
+    });
+  }
+
+  for (const [index, propertyNode] of propertyNodes.entries()) {
+    const angle = (Math.PI * 2 * index) / propertyNodes.length + Math.PI / 4;
+    nodes.push({
+      ...propertyNode,
+      iri: propertyNode.label,
+      kind: "property",
+      x: centerX + Math.cos(angle) * 430,
+      y: centerY + Math.sin(angle) * 430
+    });
+    edges.push({
+      from: rootId,
+      label: "owl:definesProperty",
+      predicate: "owl:definesProperty",
+      relation: "definesProperty",
+      to: propertyNode.id
+    });
+  }
+
+  const worksetSamples = data.worksets.slice(0, 12);
+  for (const [index, workset] of worksetSamples.entries()) {
+    const angle = (Math.PI * 2 * index) / Math.max(worksetSamples.length, 1) - Math.PI / 2;
+    const worksetId = worksetNodeId(workset.worksetId);
+    const worksetItems = [
+      ...data.elements.filter((element) => element.worksetId === workset.worksetId),
+      ...data.spaces.filter((space) => space.worksetId === workset.worksetId)
+    ];
+
+    nodes.push({
+      count: worksetItems.length,
+      id: worksetId,
+      iri: `inst:Workset_${workset.worksetId}`,
+      kind: "workset",
+      label: workset.name,
+      worksetId: workset.worksetId,
+      x: centerX + Math.cos(angle) * 680,
+      y: centerY + Math.sin(angle) * 680
+    });
+    edges.push({
+      from: "class:Workset",
+      label: "rdf:type",
+      predicate: "rdf:type",
+      relation: "instantiates",
+      to: worksetId
+    });
+
+    const categories = groupBy(worksetItems, getObjectCategoryName).slice(0, 4);
+    for (const [categoryIndex, [categoryName, categoryRows]] of categories.entries()) {
+      const spread = categories.length === 1 ? 0 : Math.PI * 0.32;
+      const categoryAngle =
+        categories.length === 1
+          ? angle
+          : angle - spread / 2 + (spread * categoryIndex) / Math.max(categories.length - 1, 1);
+      const categoryId = categoryNodeId(workset.worksetId, categoryName);
+
+      nodes.push({
+        categoryName,
+        count: categoryRows.length,
+        id: categoryId,
+        iri: `inst:Category_${workset.worksetId}_${slugify(categoryName)}`,
+        kind: "category",
+        label: categoryName,
+        worksetId: workset.worksetId,
+        x: centerX + Math.cos(categoryAngle) * 890,
+        y: centerY + Math.sin(categoryAngle) * 890
+      });
+      edges.push({
+        from: worksetId,
+        label: "bim:hasCategory",
+        predicate: "bim:hasCategory",
+        relation: "hasCategory",
+        to: categoryId
+      });
+      edges.push({
+        from: "class:Category",
+        label: "rdf:type",
+        predicate: "rdf:type",
+        relation: "instantiates",
+        to: categoryId
+      });
+
+      for (const [sampleIndex, item] of categoryRows.slice(0, 2).entries()) {
+        const objectId = item.elementId;
+        const isItemSpace = isSpace(item);
+        const sampleOffset = sampleIndex === 0 ? -12 : 12;
+
+        nodes.push({
+          id: objectId,
+          iri: `${isItemSpace ? "inst:Space" : "inst:Element"}_${item.elementId}`,
+          kind: isItemSpace ? "space" : "element",
+          label: getItemTitle(item),
+          sourceId: item.elementId,
+          x: centerX + Math.cos(categoryAngle) * 1030 + Math.cos(categoryAngle + Math.PI / 2) * sampleOffset,
+          y: centerY + Math.sin(categoryAngle) * 1030 + Math.sin(categoryAngle + Math.PI / 2) * sampleOffset
+        });
+        edges.push({
+          from: categoryId,
+          label: isItemSpace ? "bim:containsSpace" : "bim:containsElement",
+          predicate: isItemSpace ? "bim:containsSpace" : "bim:containsElement",
+          relation: "containsObject",
+          to: objectId
+        });
+        edges.push({
+          from: isItemSpace ? "class:Space" : "class:Element",
+          label: "rdf:type",
+          predicate: "rdf:type",
+          relation: "instantiates",
+          to: objectId
+        });
+      }
+    }
+  }
+
+  return normalizeGraphBounds(nodes, edges);
 }
 
 function buildWorksetGraph(data: OntologyExport): GraphData {
@@ -1843,6 +2237,42 @@ function formatCsvCell(value: string) {
   return value;
 }
 
+function estimateFactCount(data: OntologyExport) {
+  const objectFacts = [...data.elements, ...data.spaces].reduce((sum, item) => {
+    return (
+      sum +
+      2 +
+      Number(Boolean(item.worksetId)) +
+      Number(Boolean(item.levelId)) +
+      Object.keys(item.parameters ?? {}).length
+    );
+  }, 0);
+  const materialFacts = data.elements.reduce(
+    (sum, element) => sum + (element.materialIds?.length ?? 0),
+    0
+  );
+  const hostFacts = data.elements.reduce(
+    (sum, element) => sum + Number(Boolean(element.relations?.isHostedBy)),
+    0
+  );
+
+  return (
+    data.worksets.length +
+    data.levels.length +
+    data.materials.length +
+    objectFacts +
+    materialFacts +
+    hostFacts
+  );
+}
+
+function getDistinctCategoryCount(data: OntologyExport) {
+  return new Set([
+    ...data.elements.map((element) => element.category ?? "Elements"),
+    ...data.spaces.map(getSpaceCategoryName)
+  ]).size;
+}
+
 function isScopeNodeSelected(node: GraphNode, scopeFilter: ScopeFilter | null) {
   if (!scopeFilter) {
     return false;
@@ -1916,6 +2346,22 @@ function categoryNodeId(worksetId: string, category: string) {
   return `category:${worksetId}:${category}`;
 }
 
+function quoteLiteral(value: string) {
+  return `"${value.replaceAll('"', '\\"')}"`;
+}
+
+function capitalize(value: string) {
+  return value.length === 0 ? value : `${value[0].toUpperCase()}${value.slice(1)}`;
+}
+
+function slugify(value: string) {
+  return value
+    .trim()
+    .replace(/[^A-Za-z0-9가-힣]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80) || "unknown";
+}
+
 function getEdgePath(from: GraphNode, to: GraphNode) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -1935,6 +2381,18 @@ function getEdgePath(from: GraphNode, to: GraphNode) {
 }
 
 function getNodeSize(kind: GraphNodeKind) {
+  if (kind === "ontology") {
+    return { height: 34, width: 34 };
+  }
+
+  if (kind === "class") {
+    return { height: 26, width: 26 };
+  }
+
+  if (kind === "property") {
+    return { height: 18, width: 18 };
+  }
+
   if (kind === "workset") {
     return { height: 22, width: 22 };
   }
@@ -1951,6 +2409,18 @@ function getNodeSize(kind: GraphNodeKind) {
 }
 
 function getNodeColor(kind: GraphNodeKind) {
+  if (kind === "ontology") {
+    return "#171717";
+  }
+
+  if (kind === "class") {
+    return "#2563eb";
+  }
+
+  if (kind === "property") {
+    return "#16a34a";
+  }
+
   if (kind === "workset") {
     return "#6d5dfc";
   }
@@ -1975,6 +2445,18 @@ function getNodeColor(kind: GraphNodeKind) {
 }
 
 function getEdgeColor(relation: GraphEdge["relation"]) {
+  if (relation === "definesClass") {
+    return "#2563eb";
+  }
+
+  if (relation === "definesProperty") {
+    return "#16a34a";
+  }
+
+  if (relation === "instantiates") {
+    return "#64748b";
+  }
+
   if (relation === "hasCategory") {
     return "#c084fc";
   }
@@ -1996,6 +2478,9 @@ function getEdgeColor(relation: GraphEdge["relation"]) {
 
 function getKnowledgeLegendItems() {
   return [
+    { color: getNodeColor("ontology"), label: "Ontology" },
+    { color: getNodeColor("class"), label: "Class" },
+    { color: getNodeColor("property"), label: "Property" },
     { color: getNodeColor("workset"), label: "Workset" },
     { color: getNodeColor("category"), label: "Category" },
     { color: getNodeColor("element"), label: "Object" },
@@ -2007,6 +2492,21 @@ function getKnowledgeLegendItems() {
 
 function getRelationLegendItems() {
   return [
+    {
+      color: getEdgeColor("definesClass"),
+      label: "definesClass",
+      relation: "definesClass" as const
+    },
+    {
+      color: getEdgeColor("definesProperty"),
+      label: "definesProperty",
+      relation: "definesProperty" as const
+    },
+    {
+      color: getEdgeColor("instantiates"),
+      label: "rdf:type",
+      relation: "instantiates" as const
+    },
     {
       color: getEdgeColor("hasCategory"),
       label: "hasCategory",
@@ -2039,9 +2539,12 @@ function formatGraphLabel(node: GraphNode) {
   const suffix = node.count === undefined ? "" : ` (${node.count.toLocaleString()})`;
   const maxLengthByKind: Record<GraphNodeKind, number> = {
     category: 18,
+    class: 18,
     element: 24,
     level: 16,
     material: 18,
+    ontology: 18,
+    property: 22,
     space: 24,
     workset: 13
   };
